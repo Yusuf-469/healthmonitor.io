@@ -24,8 +24,20 @@ const getConnectionString = () => {
 
 const connectionString = getConnectionString();
 
-const poolConfig = connectionString ? {
-  connectionString,
+// Fix connection string format - accept both postgres:// and postgresql://
+const normalizeConnectionString = (str) => {
+  if (!str) return null;
+  // PostgreSQL connection strings can use either prefix
+  if (str.startsWith('postgresql://')) {
+    return 'postgres://' + str.substring(12);
+  }
+  return str;
+};
+
+const normalizedConnectionString = normalizeConnectionString(connectionString);
+
+const poolConfig = normalizedConnectionString ? {
+  connectionString: normalizedConnectionString,
   ssl: isRailway ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,

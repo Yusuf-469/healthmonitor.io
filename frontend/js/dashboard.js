@@ -24,11 +24,13 @@ const app = {
         this.startRealTimeUpdates();
     },
     
-    // Check authentication - Allow demo mode
+    // Check authentication - Redirect to login if not authenticated
     checkAuth() {
-        // For demo purposes, auto-login if no auth
-        localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('userName', 'Demo User');
+        const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
+        if (!isLoggedIn) {
+            window.location.href = 'login.html';
+            return false;
+        }
         
         const userName = localStorage.getItem('userName') || 'Admin';
         const userNameEl = document.getElementById('user-name');
@@ -36,6 +38,8 @@ const app = {
         
         if (userNameEl) userNameEl.textContent = userName;
         if (welcomeNameEl) welcomeNameEl.textContent = userName;
+        
+        return true;
     },
     
     // Setup event listeners
@@ -316,69 +320,75 @@ const app = {
         try {
             const response = await fetch('/api/patients');
             if (response.ok) {
-                this.data.patients = await response.json();
+                const data = await response.json();
+                this.data.patients = data.patients || [];
                 this.renderPatients();
             } else {
                 throw new Error('Failed to load patients');
             }
         } catch (error) {
-            console.warn('Using demo patient data');
-            this.loadDemoPatients();
+            console.error('Error loading patients:', error);
+            // Don't load demo data - show empty state
+            this.data.patients = [];
             this.renderPatients();
         }
-    },
-    
-    // Load demo patients
-    loadDemoPatients() {
-        this.data.patients = [
-            { id: 1, name: 'Kaustav', age: 21, heartRate: 72, temperature: 36.8, spo2: 98, status: 'online', device: 'ESP32-001', battery: 85 },
-            { id: 2, name: 'Yusuf', age: 22, heartRate: 78, temperature: 36.6, spo2: 97, status: 'online', device: 'ESP32-002', battery: 72 },
-            { id: 3, name: 'Sushanth', age: 20, heartRate: 68, temperature: 36.5, spo2: 99, status: 'online', device: 'ESP32-003', battery: 90 },
-            { id: 4, name: 'Niladri', age: 21, heartRate: 75, temperature: 36.9, spo2: 96, status: 'warning', device: 'ESP32-004', battery: 45 }
-        ];
-    },
+    }
     
     // Render patients grid
     renderPatients() {
         const grid = document.getElementById('patients-grid');
         if (!grid) return;
         
-        grid.innerHTML = this.data.patients.map(patient => `
-            <div class="patient-card">
-                <div class="patient-header">
-                    <div class="patient-avatar">${patient.name.split(' ').map(n => n[0]).join('')}</div>
-                    <div class="patient-info">
-                        <h4>${patient.name}</h4>
-                        <p>Age: ${patient.age}</p>
+        if (this.data.patients.length === 0) {
+            grid.innerHTML = '<div class="no-data">No patients found. Please login with demo credentials: demo@healthmonitor.com / demo1234</div>';
+            return;
+        }
+        
+        grid.innerHTML = this.data.patients.map(patient => {
+            // Handle both API data format and fallback format
+            const name = patient.firstName ? `${patient.firstName} ${patient.lastName}` : patient.name || 'Unknown';
+            const age = patient.age || (patient.dateOfBirth ? Math.floor((new Date() - new Date(patient.dateOfBirth)) / 31536000000) : 'N/A');
+            const status = patient.status || 'offline';
+            const device = patient.assignedDevices?.[0] || patient.device || 'N/A';
+            
+            // Get latest reading values
+            const heartRate = patient.lastReading?.heartRate || patient.heartRate || '--';
+            const temperature = patient.lastReading?.temperature || patient.temperature || '--';
+            const spo2 = patient.lastReading?.spo2 || patient.spo2 || '--';
+            
+            return `
+                <div class="patient-card">
+                    <div class="patient-header">
+                        <div class="patient-avatar">${name.split(' ').map(n => n[0]).join('').toUpperCase()}</div>
+                        <div class="patient-info">
+                            <h4>${name}</h4>
+                            <p>Age: ${age}</p>
+                        </div>
+                        <div class="patient-status ${status}"></div>
                     </div>
-                    <div class="patient-status ${patient.status}"></div>
+                    <div class="patient-metrics">
+                        <div class="metric">
+                            <span class="metric-label">Heart Rate</span>
+                            <span class="metric-value ${this.getMetricClass(heartRate, 'heartRate')}">${heartRate} <span>BPM</span></span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Temperature</span>
+                            <span class="metric-value ${this.getMetricClass(temperature, 'temperature')}">${temperature} <span>°C</span></span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">SpO2</span>
+                            <span class="metric-value ${this.getMetricClass(spo2, 'spo2')}">${spo2} <span>%</span></span>
+                        </div>
+                    </div>
+                    <div class="patient-footer">
+                        <div class="patient-device">
+                            <i class="fas fa-microchip"></i>
+                            ${device}
+                        </div>
+                    </div>
                 </div>
-                <div class="patient-metrics">
-                    <div class="metric">
-                        <span class="metric-label">Heart Rate</span>
-                        <span class="metric-value ${this.getMetricClass(patient.heartRate, 'heartRate')}">${patient.heartRate} <span>BPM</span></span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">Temperature</span>
-                        <span class="metric-value ${this.getMetricClass(patient.temperature, 'temperature')}">${patient.temperature} <span>°C</span></span>
-                    </div>
-                    <div class="metric">
-                        <span class="metric-label">SpO2</span>
-                        <span class="metric-value ${this.getMetricClass(patient.spo2, 'spo2')}">${patient.spo2} <span>%</span></span>
-                    </div>
-                </div>
-                <div class="patient-footer">
-                    <div class="patient-device">
-                        <i class="fas fa-microchip"></i>
-                        ${patient.device}
-                    </div>
-                    <div class="patient-battery">
-                        <i class="fas fa-battery-${this.getBatteryLevel(patient.battery)}"></i>
-                        ${patient.battery}%
-                    </div>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     },
     
     // Get metric class based on value
@@ -413,27 +423,22 @@ const app = {
         try {
             const response = await fetch('/api/alerts');
             if (response.ok) {
-                this.data.alerts = await response.json();
+                const data = await response.json();
+                this.data.alerts = data.alerts || data || [];
                 this.renderAlerts();
             } else {
                 throw new Error('Failed to load alerts');
             }
         } catch (error) {
-            console.warn('Using demo alert data');
-            this.loadDemoAlerts();
+            console.error('Error loading alerts:', error);
+            this.data.alerts = [];
             this.renderAlerts();
         }
     },
     
-    // Load demo alerts
+    // Load demo alerts - REMOVED
     loadDemoAlerts() {
-        this.data.alerts = [
-            { id: 1, type: 'critical', title: 'Critical Alert', message: 'Patient Niladri\'s heart rate exceeded 100 BPM', time: '2 minutes ago' },
-            { id: 2, type: 'warning', title: 'Warning', message: 'Device ESP32-004 battery below 20%', time: '15 minutes ago' },
-            { id: 3, type: 'info', title: 'Device Connected', message: 'New device ESP32-005 is now online', time: '1 hour ago' },
-            { id: 4, type: 'critical', title: 'Critical Alert', message: 'Patient Kaustav temperature above 38°C', time: '30 minutes ago' },
-            { id: 5, type: 'warning', title: 'Warning', message: 'SpO2 level below 95% for patient Yusuf', time: '45 minutes ago' }
-        ];
+        // Demo data removed - use real data from database
     },
     
     // Render alerts list
@@ -476,16 +481,22 @@ const app = {
         try {
             const response = await fetch('/api/devices');
             if (response.ok) {
-                this.data.devices = await response.json();
+                const data = await response.json();
+                this.data.devices = data.devices || data || [];
                 this.renderDevices();
             } else {
                 throw new Error('Failed to load devices');
             }
         } catch (error) {
-            console.warn('Using demo device data');
-            this.loadDemoDevices();
+            console.error('Error loading devices:', error);
+            this.data.devices = [];
             this.renderDevices();
         }
+    },
+    
+    // Load demo devices - REMOVED
+    loadDemoDevices() {
+        // Demo data removed - use real data from database
     },
     
     // Load demo devices

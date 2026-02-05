@@ -26,6 +26,7 @@ const alertRoutes = require('./routes/alerts');
 const patientRoutes = require('./routes/patients');
 const predictionRoutes = require('./routes/predictions');
 const authRoutes = require('./routes/auth');
+const deviceRoutes = require('./routes/devices');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -78,9 +79,8 @@ app.use('/api/health-data', healthDataRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/predictions', predictionRoutes);
-
-// Auth routes
 app.use('/api/auth', authRoutes);
+app.use('/api/devices', deviceRoutes);
 
 // Health check endpoint - Important for Railway
 app.get('/health', (req, res) => {

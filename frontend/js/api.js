@@ -5,6 +5,11 @@
 
 // Detect environment and set API URL accordingly
 const getApiBaseUrl = () => {
+  // Check for Netlify environment
+  if (process.env.NETLIFY && process.env.API_URL) {
+    return process.env.API_URL;
+  }
+  
   // Check for Railway environment
   if (process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL) {
     const railwayUrl = process.env.RAILWAY_STATIC_URL;
@@ -13,7 +18,7 @@ const getApiBaseUrl = () => {
     }
   }
   
-  // Check for custom API URL
+  // Check for custom API URL (set in Netlify)
   if (process.env.API_URL) {
     return process.env.API_URL;
   }
@@ -165,6 +170,21 @@ class ApiService {
 
   async getDevice(deviceId) {
     return this.fetch(`/devices/${deviceId}`);
+  }
+
+  // Auth API
+  async login(email, password) {
+    return this.fetch('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    });
+  }
+
+  async signup(email, password, firstName, lastName) {
+    return this.fetch('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, firstName, lastName })
+    });
   }
 
   // Dashboard Stats

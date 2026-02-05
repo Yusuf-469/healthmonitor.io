@@ -1,0 +1,4 @@
+# Netlify Redirects
+# Forward API calls to Railway backend
+/api/* https://your-backend.railway.app/api/:splat 200!
+/* /index.html 200

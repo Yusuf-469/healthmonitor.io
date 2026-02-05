@@ -8,39 +8,39 @@
   ],
   "routes": [
     {
-      "src": "/",
+      "src": "/[^.]*",
       "dest": "/frontend/index.html"
     },
     {
-      "src": "/dashboard.html",
+      "src": "/dashboard",
       "dest": "/frontend/dashboard.html"
     },
     {
-      "src": "/patients.html",
+      "src": "/patients",
       "dest": "/frontend/patients.html"
     },
     {
-      "src": "/alerts.html",
+      "src": "/alerts",
       "dest": "/frontend/alerts.html"
     },
     {
-      "src": "/devices.html",
+      "src": "/devices",
       "dest": "/frontend/devices.html"
     },
     {
-      "src": "/analytics.html",
+      "src": "/analytics",
       "dest": "/frontend/analytics.html"
     },
     {
-      "src": "/settings.html",
+      "src": "/settings",
       "dest": "/frontend/settings.html"
     },
     {
-      "src": "/login.html",
+      "src": "/login",
       "dest": "/frontend/login.html"
     },
     {
-      "src": "/signup.html",
+      "src": "/signup",
       "dest": "/frontend/signup.html"
     },
     {

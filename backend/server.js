@@ -179,17 +179,19 @@ const startServer = async () => {
       logger.info(`Railway URL: https://${RAILWAY_URL}`);
     }
     
-    // Connect to PostgreSQL database
-    const connected = await connectDB();
-    
-    if (connected) {
-      logger.info('Database connected - seeding sample data...');
-      // Seed database with sample data
-      seedDatabase().catch(err => logger.warn('Seeding skipped:', err.message));
-    } else {
-      logger.warn('Database connection failed - running without database');
-      logger.warn('Set DATABASE_URL or NEON_DATABASE_URL environment variable');
-    }
+    // Connect to PostgreSQL database (non-blocking)
+    connectDB()
+      .then(connected => {
+        if (connected) {
+          logger.info('Database connected - seeding sample data...');
+          return seedDatabase().catch(err => logger.warn('Seeding skipped:', err.message));
+        } else {
+          logger.warn('Database not connected - running without database');
+        }
+      })
+      .catch(err => {
+        logger.warn('Database connection error:', err.message);
+      });
   });
 };
 
@@ -197,24 +199,34 @@ const startServer = async () => {
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
   server.close(() => {
-    const { pool } = require('./database');
-    pool.end(false, () => {
-      logger.info('Database pool closed');
+    const db = require('./database');
+    if (db.pool) {
+      db.pool.end(false, () => {
+        logger.info('Database pool closed');
+        logger.info('Server closed');
+        process.exit(0);
+      });
+    } else {
       logger.info('Server closed');
       process.exit(0);
-    });
+    }
   });
 });
 
 process.on('SIGINT', () => {
   logger.info('SIGINT received. Shutting down gracefully...');
   server.close(() => {
-    const { pool } = require('./database');
-    pool.end(false, () => {
-      logger.info('Database pool closed');
+    const db = require('./database');
+    if (db.pool) {
+      db.pool.end(false, () => {
+        logger.info('Database pool closed');
+        logger.info('Server closed');
+        process.exit(0);
+      });
+    } else {
       logger.info('Server closed');
       process.exit(0);
-    });
+    }
   });
 });
 

@@ -9,25 +9,10 @@
     "startCommand": "npm start",
     "restartPolicy": "always",
     "healthcheckPath": "/health",
-    "healthcheckTimeout": 30,
-    "healthcheckInterval": 60,
-    "copyPath": "/tmp/health",
-    "timeout": 120
+    "healthcheckTimeout": 60,
+    "healthcheckInterval": 30,
+    "timeout": 180
   },
-  "plugins": [
-    {
-      "name": "MongoDB",
-      "id": "mongodb"
-    }
-  ],
-  "domains": [
-    {
-      "domain": {
-        "id": "main",
-        "cname": "${RAILWAY_STATIC_URL}"
-      }
-    }
-  ],
   "env": {
     "NODE_ENV": "production"
   }

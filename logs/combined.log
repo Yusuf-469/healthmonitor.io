@@ -39,3 +39,6 @@
 {"level":"info","message":"MongoDB connected successfully","service":"iot-health-monitor","timestamp":"2026-02-05T09:53:01.379Z"}
 {"level":"info","message":"Server running on port 5000","service":"iot-health-monitor","timestamp":"2026-02-05T09:53:01.385Z"}
 {"level":"info","message":"Environment: development","service":"iot-health-monitor","timestamp":"2026-02-05T09:53:01.385Z"}
+{"level":"info","message":"MongoDB connected successfully","service":"iot-health-monitor","timestamp":"2026-02-05T09:54:16.754Z"}
+{"level":"info","message":"Server running on port 5000","service":"iot-health-monitor","timestamp":"2026-02-05T09:54:16.759Z"}
+{"level":"info","message":"Environment: development","service":"iot-health-monitor","timestamp":"2026-02-05T09:54:16.760Z"}

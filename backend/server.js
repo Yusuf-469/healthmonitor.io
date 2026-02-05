@@ -25,6 +25,7 @@ const healthDataRoutes = require('./routes/healthData');
 const alertRoutes = require('./routes/alerts');
 const patientRoutes = require('./routes/patients');
 const predictionRoutes = require('./routes/predictions');
+const authRoutes = require('./routes/auth');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -77,6 +78,9 @@ app.use('/api/health-data', healthDataRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/predictions', predictionRoutes);
+
+// Auth routes
+app.use('/api/auth', authRoutes);
 
 // Health check endpoint - Important for Railway
 app.get('/health', (req, res) => {
@@ -199,6 +203,26 @@ const autoSeedDatabase = async () => {
       
       // Import seed data
       const seedData = require('./seedData');
+      
+      // Insert demo user first
+      const User = require('./models/User');
+      const userCount = await User.countDocuments();
+      if (userCount === 0) {
+        const bcrypt = require('bcryptjs');
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash('demo1234', salt);
+        
+        await User.create({
+          email: 'demo@healthmonitor.com',
+          password: hashedPassword,
+          firstName: 'Demo',
+          lastName: 'Admin',
+          role: 'admin',
+          status: 'active',
+          isDemo: true
+        });
+        logger.info('Demo user created: demo@healthmonitor.com / demo1234');
+      }
       
       // Insert sample patients
       if (seedData.patients && seedData.patients.length > 0) {

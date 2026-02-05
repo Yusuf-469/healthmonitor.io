@@ -1,6 +1,6 @@
 /**
  * Login Page JavaScript
- * Handles login functionality, animations, and dashboard preview
+ * Handles login functionality with proper API authentication
  */
 
 // DOM Elements
@@ -11,6 +11,10 @@ const dashboardPreview = document.getElementById('dashboardPreview');
 const loginCard = document.querySelector('.login-card');
 const toast = document.getElementById('toast');
 const previewChart = document.getElementById('previewChart');
+
+// Demo credentials
+const DEMO_EMAIL = 'demo@healthmonitor.com';
+const DEMO_PASSWORD = 'demo1234';
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -97,10 +101,10 @@ function togglePassword() {
 /**
  * Handle login form submission
  */
-function handleLogin(event) {
+async function handleLogin(event) {
     event.preventDefault();
     
-    const email = emailInput.value;
+    const email = emailInput.value.trim();
     const password = passwordInput.value;
     
     // Validate inputs
@@ -109,20 +113,41 @@ function handleLogin(event) {
         return;
     }
     
+    if (!validateEmail()) {
+        showToast('Please enter a valid email address', 'error');
+        return;
+    }
+    
+    if (password.length < 8) {
+        showToast('Password must be at least 8 characters', 'error');
+        return;
+    }
+    
     // Show loading state
     const loginBtn = loginForm.querySelector('.login-btn');
     loginBtn.classList.add('loading');
+    loginBtn.disabled = true;
     
-    // Simulate API call
-    setTimeout(() => {
-        // Demo: Accept any credentials
-        if (email && password.length >= 4) {
+    try {
+        // Make API call to login
+        const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
             // Store auth state
+            localStorage.setItem('authToken', data.token);
+            localStorage.setItem('userEmail', data.user.email);
+            localStorage.setItem('userName', `${data.user.firstName} ${data.user.lastName}`);
+            localStorage.setItem('userRole', data.user.role);
             localStorage.setItem('isLoggedIn', 'true');
-            localStorage.setItem('userEmail', email);
-            localStorage.setItem('userName', email.split('@')[0]);
             
-            // Show success
             showToast('Login successful! Redirecting...', 'success');
             
             // Animate transition to dashboard
@@ -130,10 +155,17 @@ function handleLogin(event) {
                 animateToDashboard();
             }, 1000);
         } else {
-            showToast('Invalid credentials', 'error');
+            showToast(data.error || 'Login failed', 'error');
             loginBtn.classList.remove('loading');
+            loginBtn.disabled = false;
         }
-    }, 1500);
+        
+    } catch (error) {
+        console.error('Login error:', error);
+        showToast('Connection error. Please try again.', 'error');
+        loginBtn.classList.remove('loading');
+        loginBtn.disabled = false;
+    }
 }
 
 /**
@@ -162,29 +194,88 @@ function animateToDashboard() {
 }
 
 /**
- * Handle social login
+ * Handle demo login
  */
-function socialLogin(provider) {
-    showToast(`Signing in with ${provider}...`, 'info');
+async function handleDemoLogin() {
+    emailInput.value = DEMO_EMAIL;
+    passwordInput.value = DEMO_PASSWORD;
     
-    setTimeout(() => {
-        localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('userEmail', `user@${provider}.com`);
-        localStorage.setItem('userName', `${provider} user`);
-        
-        showToast('Login successful! Redirecting...', 'success');
-        
-        setTimeout(() => {
-            window.location.href = 'dashboard.html';
-        }, 1500);
-    }, 1000);
+    // Trigger validation
+    validateEmail();
+    validatePassword();
+    
+    // Submit form
+    await handleLogin(new Event('submit'));
 }
 
 /**
- * Switch to register (placeholder)
+ * Switch to register
  */
-function switchToRegister() {
-    showToast('Registration form coming soon!', 'info');
+async function switchToRegister() {
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    const firstName = '';
+    const lastName = '';
+    
+    if (!email || !password) {
+        showToast('Please enter email and password to register', 'info');
+        return;
+    }
+    
+    if (!validateEmail()) {
+        showToast('Please enter a valid email', 'error');
+        return;
+    }
+    
+    if (password.length < 8) {
+        showToast('Password must be at least 8 characters', 'error');
+        return;
+    }
+    
+    // Show loading
+    const loginBtn = loginForm.querySelector('.login-btn');
+    loginBtn.classList.add('loading');
+    
+    try {
+        // Attempt signup
+        const response = await fetch('/api/auth/signup', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                email, 
+                password,
+                firstName: email.split('@')[0],
+                lastName: 'User'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Auto login after signup
+            localStorage.setItem('authToken', data.token);
+            localStorage.setItem('userEmail', data.user.email);
+            localStorage.setItem('userName', `${data.user.firstName} ${data.user.lastName}`);
+            localStorage.setItem('userRole', data.user.role);
+            localStorage.setItem('isLoggedIn', 'true');
+            
+            showToast('Account created! Redirecting...', 'success');
+            
+            setTimeout(() => {
+                window.location.href = 'dashboard.html';
+            }, 1500);
+        } else {
+            showToast(data.error || 'Registration failed', 'error');
+            loginBtn.classList.remove('loading');
+        }
+        
+    } catch (error) {
+        console.error('Signup error:', error);
+        showToast('Registration failed. Please try again.', 'error');
+        loginBtn.classList.remove('loading');
+    }
 }
 
 /**
@@ -291,8 +382,10 @@ function showToast(message, type = 'info') {
  */
 function logout() {
     localStorage.removeItem('isLoggedIn');
+    localStorage.removeItem('authToken');
     localStorage.removeItem('userEmail');
     localStorage.removeItem('userName');
+    localStorage.removeItem('userRole');
     
     window.location.href = 'login.html';
 }
@@ -300,6 +393,6 @@ function logout() {
 // Expose functions globally
 window.handleLogin = handleLogin;
 window.togglePassword = togglePassword;
-window.socialLogin = socialLogin;
+window.handleDemoLogin = handleDemoLogin;
 window.switchToRegister = switchToRegister;
 window.logout = logout;

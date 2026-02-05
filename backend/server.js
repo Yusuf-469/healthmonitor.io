@@ -43,7 +43,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    if (req.path !== '/health' && req.path !== '/ready') {
+    if (req.path !== '/health' && req.path !== '/ready' && req.path !== '/ping') {
       console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
     }
   });
@@ -76,6 +76,15 @@ app.get('/ready', (req, res) => {
   res.status(200).json({
     ready: true,
     service: 'ready'
+  });
+});
+
+// Keep-alive ping endpoint (for uptime monitors)
+app.get('/ping', (req, res) => {
+  res.status(200).json({
+    pong: true,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
   });
 });
 
@@ -113,7 +122,7 @@ app.use('/api/signup', require('./routes/auth'));
 // Serve index.html for all non-API routes (SPA)
 app.get('*', (req, res) => {
   // Don't serve index.html for API routes
-  if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/ready')) {
+  if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/ready') || req.path.startsWith('/ping')) {
     return res.status(404).json({ error: 'Not found' });
   }
   
@@ -182,6 +191,7 @@ server.listen(PORT, HOST, () => {
 ║  Server running on: http://${HOST}:${PORT}                    ║
 ║  Environment: ${process.env.NODE_ENV || 'production'}                        ║
 ║  Health check: http://${HOST}:${PORT}/health               ║
+║  Ping endpoint: http://${HOST}:${PORT}/ping                ║
 ╚═══════════════════════════════════════════════════╝
   `);
   

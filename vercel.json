@@ -8,10 +8,6 @@
   ],
   "routes": [
     {
-      "src": "/[^.]*",
-      "dest": "/frontend/index.html"
-    },
-    {
       "src": "/dashboard",
       "dest": "/frontend/dashboard.html"
     },

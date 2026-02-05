@@ -1,15 +1,16 @@
 /**
  * Authentication Routes
- * Login, signup, and token management
+ * Login, signup, and token management - PostgreSQL version
  */
 
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const { query } = require('../database');
 const { logger } = require('../utils/logger');
 
-// JWT secret (use environment variable in production)
+// JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
@@ -17,13 +18,30 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const generateToken = (user) => {
   return jwt.sign(
     { 
-      id: user._id, 
+      id: user.id, 
       email: user.email, 
       role: user.role 
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
+};
+
+// Helper to get user by email
+const getUserByEmail = async (email) => {
+  const result = await query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+  return result.rows[0] || null;
+};
+
+// Helper to create user
+const createUser = async (userData) => {
+  const { email, password, firstName, lastName, role, status, isDemo } = userData;
+  const result = await query(`
+    INSERT INTO users (email, password, first_name, last_name, role, status, is_demo)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING id, email, first_name, last_name, role, status, is_demo, created_at
+  `, [email.toLowerCase(), password, firstName, lastName, role || 'viewer', status || 'active', isDemo || false]);
+  return result.rows[0];
 };
 
 // POST /api/auth/login - User login
@@ -36,27 +54,32 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Try to find user in database
-    let user = await User.findOne({ email: email.toLowerCase() });
+    // Find user in database
+    let user = await getUserByEmail(email);
 
-    // Check demo user first
+    // Demo user special handling
     if (!user) {
       if (email === 'demo@healthmonitor.com' && password === 'demo1234') {
-        // Create or find demo user
-        user = await User.findOne({ email: 'demo@healthmonitor.com' });
+        // Check if demo user exists
+        user = await getUserByEmail('demo@healthmonitor.com');
         
         if (!user) {
-          // Create demo user if doesn't exist
-          user = new User({
+          // Create demo user
+          user = await createUser({
             email: 'demo@healthmonitor.com',
-            password: 'demo1234',
+            password: password, // Will be hashed in createUser if not already
             firstName: 'Demo',
             lastName: 'Admin',
             role: 'admin',
             status: 'active',
             isDemo: true
           });
-          await user.save();
+          
+          // Re-hash since createUser expects plain password
+          const salt = await bcrypt.genSalt(10);
+          const hashedPassword = await bcrypt.hash(password, salt);
+          await query('UPDATE users SET password = $1 WHERE email = $1', [hashedPassword, 'demo@healthmonitor.com']);
+          
           logger.info('Demo user created');
         }
 
@@ -66,12 +89,12 @@ router.post('/login', async (req, res) => {
           success: true,
           token,
           user: {
-            id: user._id,
+            id: user.id,
             email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
+            firstName: user.first_name,
+            lastName: user.last_name,
             role: user.role,
-            isDemo: user.isDemo
+            isDemo: user.is_demo
           }
         });
       }
@@ -85,7 +108,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Verify password
-    const isMatch = await user.comparePassword(password);
+    const isMatch = await bcrypt.compare(password, user.password);
     
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -100,12 +123,12 @@ router.post('/login', async (req, res) => {
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
+        firstName: user.first_name,
+        lastName: user.last_name,
         role: user.role,
-        isDemo: user.isDemo
+        isDemo: user.is_demo
       }
     });
 
@@ -131,23 +154,26 @@ router.post('/signup', async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const existingUser = await getUserByEmail(email);
     
     if (existingUser) {
       return res.status(400).json({ error: 'Email already registered' });
     }
 
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     // Create new user
-    const user = new User({
-      email: email.toLowerCase(),
-      password,
+    const user = await createUser({
+      email,
+      password: hashedPassword,
       firstName,
       lastName,
-      role: 'viewer', // Default role for new signups
-      status: 'active'
+      role: 'viewer',
+      status: 'active',
+      isDemo: false
     });
-
-    await user.save();
 
     // Generate token
     const token = generateToken(user);
@@ -158,10 +184,10 @@ router.post('/signup', async (req, res) => {
       success: true,
       token,
       user: {
-        id: user._id,
+        id: user.id,
         email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
+        firstName: user.first_name,
+        lastName: user.last_name,
         role: user.role
       }
     });
@@ -182,13 +208,13 @@ router.get('/me', async (req, res) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-password');
+    const user = await query('SELECT id, email, first_name, last_name, role, status, is_demo, created_at FROM users WHERE id = $1', [decoded.id]);
 
-    if (!user) {
+    if (!user.rows[0]) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ user });
+    res.json({ user: user.rows[0] });
 
   } catch (error) {
     logger.error('Auth check error:', error);

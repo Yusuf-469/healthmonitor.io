@@ -1,24 +1,24 @@
 /**
  * IoT-Based Intelligent Health Monitoring and Alert System
- * Main Server Entry Point - Optimized for Railway Deployment
+ * Main Server Entry Point - Optimized for Railway Deployment with PostgreSQL
  */
 
 const express = require('express');
 const http = require('http');
 const path = require('path');
 const socketIo = require('socket.io');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
+// Import database
+const { connectDB, getDbConnected } = require('./database');
+const { seedDatabase } = require('./seed');
+
 // Detect Railway environment
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL !== undefined;
 const RAILWAY_URL = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_GIT_COMMIT_LINK || '';
-
-// MongoDB connection status
-let dbConnected = false;
 
 // Import routes
 const healthDataRoutes = require('./routes/healthData');
@@ -49,7 +49,7 @@ const io = socketIo(server, {
 
 // Security middleware
 app.use(helmet({
-  contentSecurityPolicy: false, // Disabled for development compatibility
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 app.use(cors({
@@ -59,8 +59,8 @@ app.use(cors({
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100 // limit each IP to 100 requests per windowMs
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100
 });
 app.use('/api/', limiter);
 
@@ -88,7 +88,7 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    database: dbConnected ? 'connected' : 'demo',
+    database: getDbConnected() ? 'connected' : 'disconnected',
     environment: isRailway ? 'railway' : 'local',
     railwayUrl: RAILWAY_URL || null
   });
@@ -98,7 +98,7 @@ app.get('/health', (req, res) => {
 app.get('/ready', (req, res) => {
   res.status(200).json({
     ready: true,
-    database: dbConnected ? 'connected' : 'disconnected',
+    database: getDbConnected() ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString()
   });
 });
@@ -107,8 +107,8 @@ app.get('/ready', (req, res) => {
 app.get('/api/status', (req, res) => {
   res.json({
     database: {
-      status: dbConnected ? 'connected' : 'demo',
-      message: dbConnected ? 'MongoDB connected' : 'Running in demo mode'
+      status: getDbConnected() ? 'connected' : 'disconnected',
+      message: getDbConnected() ? 'PostgreSQL connected' : 'Database not connected'
     },
     server: {
       status: 'online',
@@ -116,6 +116,17 @@ app.get('/api/status', (req, res) => {
       environment: isRailway ? 'railway' : 'local'
     }
   });
+});
+
+// Seed endpoint (for manual seeding)
+app.post('/api/seed', async (req, res) => {
+  try {
+    await seedDatabase();
+    res.json({ success: true, message: 'Database seeded successfully' });
+  } catch (error) {
+    logger.error('Seed error:', error);
+    res.status(500).json({ error: 'Seeding failed' });
+  }
 });
 
 // Serve frontend for all non-API routes
@@ -153,153 +164,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Enhanced database connection with Railway support
-const connectDB = async () => {
-  try {
-    // Check for Railway MongoDB first, then local, then fail gracefully
-    let mongoURI = process.env.MONGODB_URI;
-    
-    // Railway MongoDB plugin connection
-    if (process.env.MONGO_URI) {
-      mongoURI = process.env.MONGO_URI;
-    }
-    
-    // Use local fallback if no cloud URI provided
-    if (!mongoURI) {
-      mongoURI = 'mongodb://localhost:27017/iot_health_monitor';
-    }
-    
-    // Mongoose connection options
-    const options = {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    };
-    
-    await mongoose.connect(mongoURI, options);
-    dbConnected = true;
-    logger.info('MongoDB connected successfully');
-    logger.info(`Database: ${mongoose.connection.name}`);
-    
-    // Auto-seed if database is empty
-    await autoSeedDatabase();
-    
-  } catch (error) {
-    dbConnected = false;
-    logger.warn('MongoDB connection failed - running in demo mode');
-    logger.warn('To enable full features, configure MONGODB_URI or MONGO_URI in Railway variables');
-    logger.warn(`Error: ${error.message}`);
-  }
-};
-
-// Auto-seed database with sample data
-const autoSeedDatabase = async () => {
-  try {
-    const Patient = require('./models/Patient');
-    const count = await Patient.countDocuments();
-    
-    if (count === 0) {
-      logger.info('Database is empty - auto-seeding with sample data...');
-      
-      // Import seed data
-      const seedData = require('./seedData');
-      
-      // Insert demo user first
-      const User = require('./models/User');
-      const userCount = await User.countDocuments();
-      if (userCount === 0) {
-        const bcrypt = require('bcryptjs');
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash('demo1234', salt);
-        
-        await User.create({
-          email: 'demo@healthmonitor.com',
-          password: hashedPassword,
-          firstName: 'Demo',
-          lastName: 'Admin',
-          role: 'admin',
-          status: 'active',
-          isDemo: true
-        });
-        logger.info('Demo user created: demo@healthmonitor.com / demo1234');
-      }
-      
-      // Insert sample patients
-      if (seedData.patients && seedData.patients.length > 0) {
-        await Patient.insertMany(seedData.patients);
-        logger.info(`Seeded ${seedData.patients.length} sample patients`);
-      }
-      
-      // Insert sample devices
-      if (seedData.devices && seedData.devices.length > 0) {
-        const Device = require('./models/Device');
-        await Device.insertMany(seedData.devices);
-        logger.info(`Seeded ${seedData.devices.length} sample devices`);
-      }
-      
-      // Generate health data
-      if (seedData.patients && seedData.patients.length > 0) {
-        const HealthData = require('./models/HealthData');
-        for (const patient of seedData.patients) {
-          const device = seedData.devices?.find(d => d.patientId === patient.patientId);
-          if (device) {
-            const healthData = generateHealthData(patient.patientId, device.deviceId, 7);
-            await HealthData.insertMany(healthData);
-            logger.info(`Generated health data for ${patient.patientId}`);
-          }
-        }
-      }
-      
-      logger.info('Auto-seeding completed!');
-    } else {
-      logger.info(`Database already has ${count} patients - skipping auto-seed`);
-    }
-  } catch (error) {
-    logger.warn('Auto-seeding skipped:', error.message);
-  }
-};
-
-// Generate sample health data
-const generateHealthData = (patientId, deviceId, days = 7) => {
-  const data = [];
-  const now = new Date();
-  
-  for (let i = 0; i < days * 24; i++) {
-    const timestamp = new Date(now - (days * 24 - i) * 60 * 60 * 1000);
-    const isSleeping = timestamp.getHours() >= 23 || timestamp.getHours() < 6;
-    const baseHeartRate = isSleeping ? 60 : 75;
-    
-    data.push({
-      patientId,
-      deviceId,
-      timestamp,
-      heartRate: {
-        value: baseHeartRate + Math.round(Math.random() * 10 - 5),
-        unit: 'bpm',
-        quality: 'good'
-      },
-      temperature: {
-        value: 36.5 + Math.round(Math.random() * 10 - 5) / 10,
-        unit: '°C',
-        method: 'axillary'
-      },
-      spo2: {
-        value: 97 + Math.round(Math.random() * 4 - 2),
-        unit: '%',
-        quality: 'good'
-      },
-      bloodPressure: {
-        systolic: 115 + Math.round(Math.random() * 20 - 10),
-        diastolic: 75 + Math.round(Math.random() * 15 - 7),
-        unit: 'mmHg'
-      },
-      status: 'normal'
-    });
-  }
-  
-  return data;
-};
-
 // Get port from Railway or environment
 const PORT = process.env.PORT || process.env.RAILWAY_PORT || 5000;
 
@@ -315,10 +179,17 @@ const startServer = async () => {
       logger.info(`Railway URL: https://${RAILWAY_URL}`);
     }
     
-    // Connect to MongoDB in background
-    connectDB().catch(err => {
-      logger.warn('MongoDB connection failed, running in demo mode');
-    });
+    // Connect to PostgreSQL database
+    const connected = await connectDB();
+    
+    if (connected) {
+      logger.info('Database connected - seeding sample data...');
+      // Seed database with sample data
+      seedDatabase().catch(err => logger.warn('Seeding skipped:', err.message));
+    } else {
+      logger.warn('Database connection failed - running without database');
+      logger.warn('Set DATABASE_URL or NEON_DATABASE_URL environment variable');
+    }
   });
 };
 
@@ -326,7 +197,9 @@ const startServer = async () => {
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received. Shutting down gracefully...');
   server.close(() => {
-    mongoose.connection.close(false, () => {
+    const { pool } = require('./database');
+    pool.end(false, () => {
+      logger.info('Database pool closed');
       logger.info('Server closed');
       process.exit(0);
     });
@@ -336,7 +209,9 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   logger.info('SIGINT received. Shutting down gracefully...');
   server.close(() => {
-    mongoose.connection.close(false, () => {
+    const { pool } = require('./database');
+    pool.end(false, () => {
+      logger.info('Database pool closed');
       logger.info('Server closed');
       process.exit(0);
     });

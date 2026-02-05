@@ -1,241 +1,81 @@
 /**
  * Health Data Routes
- * API endpoints for health data ingestion and retrieval
+ * API endpoints for health data - PostgreSQL version
  */
 
 const express = require('express');
 const router = express.Router();
-const HealthData = require('../models/HealthData');
-const Patient = require('../models/Patient');
-const Device = require('../models/Device');
+const { query } = require('../database');
 const { logger } = require('../utils/logger');
-const { predictHealthRisk } = require('../services/predictionService');
 
-// POST /api/health-data - Receive health data from devices
-router.post('/', async (req, res) => {
-  try {
-    const {
-      patientId,
-      deviceId,
-      heartRate,
-      temperature,
-      spo2,
-      bloodPressure,
-      ecg,
-      respiration,
-      metadata
-    } = req.body;
-
-    // Validate required fields
-    if (!patientId || !deviceId) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: patientId and deviceId' 
-      });
-    }
-
-    // Create health data record
-    const healthData = new HealthData({
-      patientId,
-      deviceId,
-      heartRate: {
-        value: heartRate?.value || heartRate,
-        unit: heartRate?.unit || 'bpm',
-        quality: heartRate?.quality || 'good'
-      },
-      temperature: {
-        value: temperature?.value || temperature,
-        unit: temperature?.unit || '°C',
-        method: temperature?.method || 'axillary'
-      },
-      spo2: {
-        value: spo2?.value || spo2,
-        unit: spo2?.unit || '%',
-        quality: spo2?.quality || 'good'
-      },
-      bloodPressure: bloodPressure || {},
-      ecg: ecg || {},
-      respiration: respiration || {},
-      metadata: metadata || {}
-    });
-
-    // Assess status and generate alerts
-    const patient = await Patient.findOne({ patientId });
-    if (patient) {
-      const alerts = patient.isAbnormalReading({
-        heartRate: healthData.heartRate.value,
-        temperature: healthData.temperature.value,
-        spo2: healthData.spo2.value,
-        bloodPressure: healthData.bloodPressure
-      });
-
-      if (alerts.length > 0) {
-        healthData.alerts = alerts;
-        healthData.status = alerts.some(a => a.severity === 'critical') ? 'critical' : 'warning';
-        
-        // Emit real-time alert
-        const io = req.app.get('io');
-        io.to(`patient-${patientId}`).emit('alert', {
-          patientId,
-          alerts,
-          data: healthData
-        });
-      } else {
-        healthData.status = 'normal';
-      }
-
-      // Update patient's last reading
-      await Patient.findOneAndUpdate(
-        { patientId },
-        {
-          lastReading: {
-            timestamp: new Date(),
-            heartRate: healthData.heartRate.value,
-            temperature: healthData.temperature.value,
-            spo2: healthData.spo2.value,
-            bloodPressure: healthData.bloodPressure
-          }
-        }
-      );
-    }
-
-    // Update device last seen
-    await Device.findOneAndUpdate(
-      { deviceId },
-      {
-        lastSeen: new Date(),
-        status: 'online',
-        lastData: {
-          timestamp: new Date(),
-          heartRate: healthData.heartRate.value,
-          temperature: healthData.temperature.value,
-          spo2: healthData.spo2.value
-        }
-      }
-    );
-
-    // Save health data
-    await healthData.save();
-
-    // Emit real-time data update
-    const io = req.app.get('io');
-    io.to(`patient-${patientId}`).emit('healthData', healthData);
-
-    logger.info(`Health data received from ${deviceId} for patient ${patientId}`);
-
-    res.status(201).json({
-      success: true,
-      data: healthData,
-      alerts: healthData.alerts || []
-    });
-
-  } catch (error) {
-    logger.error('Error processing health data:', error);
-    res.status(500).json({ 
-      error: 'Failed to process health data',
-      message: error.message 
-    });
-  }
+// Helper to format health data from DB row
+const formatHealthData = (row) => ({
+  id: row.id,
+  patientId: row.patient_id,
+  deviceId: row.device_id,
+  heartRate: row.heart_rate,
+  temperature: row.temperature,
+  spo2: row.spo2,
+  bloodPressure: {
+    systolic: row.blood_pressure_systolic,
+    diastolic: row.blood_pressure_diastolic
+  },
+  status: row.status,
+  timestamp: row.timestamp
 });
 
-// POST /api/health-data/batch - Receive batch health data
-router.post('/batch', async (req, res) => {
-  try {
-    const { readings } = req.body;
-
-    if (!readings || !Array.isArray(readings)) {
-      return res.status(400).json({ error: 'Invalid batch data' });
-    }
-
-    const results = [];
-    for (const reading of readings) {
-      try {
-        const healthData = new HealthData(reading);
-        await healthData.save();
-        results.push({ success: true, data: healthData });
-      } catch (err) {
-        results.push({ success: false, error: err.message, data: reading });
-      }
-    }
-
-    res.status(201).json({
-      success: true,
-      total: readings.length,
-      successful: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
-      results
-    });
-
-  } catch (error) {
-    logger.error('Error processing batch health data:', error);
-    res.status(500).json({ 
-      error: 'Failed to process batch health data',
-      message: error.message 
-    });
-  }
-});
-
-// GET /api/health-data/:patientId - Get patient health data
+// GET /api/health-data/:patientId - Get health data for patient
 router.get('/:patientId', async (req, res) => {
   try {
     const { patientId } = req.params;
-    const { 
-      startDate, 
-      endDate, 
-      limit = 100, 
-      skip = 0,
-      sort = '-timestamp',
-      interval
-    } = req.query;
-
-    const query = { patientId };
-
-    // Date range filter
-    if (startDate || endDate) {
-      query.timestamp = {};
-      if (startDate) query.timestamp.$gte = new Date(startDate);
-      if (endDate) query.timestamp.$lte = new Date(endDate);
-    }
-
-    // Time series aggregation if interval specified
-    if (interval) {
-      const startTime = startDate ? new Date(startDate) : new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const endTime = endDate ? new Date(endDate) : new Date();
+    const { limit = 100, skip = 0, period } = req.query;
+    
+    let sql = `
+      SELECT * FROM health_data 
+      WHERE patient_id = $1
+    `;
+    
+    const params = [patientId];
+    let paramIndex = 2;
+    
+    // Add period filter if provided
+    if (period) {
+      const periodMap = {
+        '1h': "timestamp >= NOW() - INTERVAL '1 hour'",
+        '24h': "timestamp >= NOW() - INTERVAL '24 hours'",
+        '7d': "timestamp >= NOW() - INTERVAL '7 days'",
+        '30d': "timestamp >= NOW() - INTERVAL '30 days'"
+      };
       
-      const timeSeries = await HealthData.getTimeSeries(patientId, startTime, endTime, interval);
-      return res.json({
-        patientId,
-        interval,
-        startDate: startTime,
-        endDate: endTime,
-        data: timeSeries
-      });
+      if (periodMap[period]) {
+        sql += ` AND ${periodMap[period]}`;
+      }
     }
-
-    // Regular query
-    const data = await HealthData.find(query)
-      .sort(sort)
-      .skip(parseInt(skip))
-      .limit(parseInt(limit));
-
-    const total = await HealthData.countDocuments(query);
+    
+    sql += ` ORDER BY timestamp DESC LIMIT $${paramIndex++} OFFSET $${paramIndex}`;
+    params.push(parseInt(limit), parseInt(skip));
+    
+    const result = await query(sql, params);
+    
+    // Get total count
+    const countResult = await query(
+      'SELECT COUNT(*) FROM health_data WHERE patient_id = $1',
+      [patientId]
+    );
+    const total = parseInt(countResult.rows[0].count);
 
     res.json({
-      patientId,
-      data,
+      data: result.rows.map(formatHealthData),
       pagination: {
         total,
         limit: parseInt(limit),
-        skip: parseInt(skip),
-        hasMore: parseInt(skip) + parseInt(limit) < total
+        skip: parseInt(skip)
       }
     });
 
   } catch (error) {
     logger.error('Error fetching health data:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch health data',
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Failed to fetch health data' });
   }
 });
 
@@ -243,124 +83,183 @@ router.get('/:patientId', async (req, res) => {
 router.get('/:patientId/latest', async (req, res) => {
   try {
     const { patientId } = req.params;
-
-    const data = await HealthData.findOne({ patientId })
-      .sort({ timestamp: -1 });
-
-    if (!data) {
-      return res.status(404).json({ error: 'No data found for patient' });
+    
+    const result = await query(`
+      SELECT * FROM health_data 
+      WHERE patient_id = $1 
+      ORDER BY timestamp DESC 
+      LIMIT 1
+    `, [patientId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No health data found' });
     }
 
-    res.json(data);
+    res.json(formatHealthData(result.rows[0]));
 
   } catch (error) {
-    logger.error('Error fetching latest health data:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch latest health data',
-      message: error.message 
-    });
+    logger.error('Error fetching latest reading:', error);
+    res.status(500).json({ error: 'Failed to fetch latest reading' });
   }
 });
 
-// GET /api/health-data/:patientId/summary - Get aggregated summary
+// GET /api/health-data/:patientId/summary - Get health summary
 router.get('/:patientId/summary', async (req, res) => {
   try {
     const { patientId } = req.params;
     const { period = '24h' } = req.query;
-
-    const periodMs = {
-      '1h': 60 * 60 * 1000,
-      '6h': 6 * 60 * 60 * 1000,
-      '24h': 24 * 60 * 60 * 1000,
-      '7d': 7 * 24 * 60 * 60 * 1000,
-      '30d': 30 * 24 * 60 * 60 * 1000
+    
+    const periodMap = {
+      '1h': "timestamp >= NOW() - INTERVAL '1 hour'",
+      '24h': "timestamp >= NOW() - INTERVAL '24 hours'",
+      '7d': "timestamp >= NOW() - INTERVAL '7 days'",
+      '30d': "timestamp >= NOW() - INTERVAL '30 days'"
     };
-
-    const startTime = new Date(Date.now() - (periodMs[period] || periodMs['24h']));
-
-    const summary = await HealthData.aggregate([
-      {
-        $match: {
-          patientId,
-          timestamp: { $gte: startTime }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          avgHeartRate: { $avg: '$heartRate.value' },
-          minHeartRate: { $min: '$heartRate.value' },
-          maxHeartRate: { $max: '$heartRate.value' },
-          avgTemperature: { $avg: '$temperature.value' },
-          minTemperature: { $min: '$temperature.value' },
-          maxTemperature: { $max: '$temperature.value' },
-          avgSpo2: { $avg: '$spo2.value' },
-          minSpo2: { $min: '$spo2.value' },
-          maxSpo2: { $max: '$spo2.value' },
-          avgSystolic: { $avg: '$bloodPressure.systolic' },
-          avgDiastolic: { $avg: '$bloodPressure.diastolic' },
-          totalReadings: { $sum: 1 },
-          criticalAlerts: {
-            $sum: { $cond: [{ $eq: ['$status', 'critical'] }, 1, 0] }
-          },
-          warningAlerts: {
-            $sum: { $cond: [{ $eq: ['$status', 'warning'] }, 1, 0] }
-          },
-          firstReading: { $min: '$timestamp' },
-          lastReading: { $max: '$timestamp' }
+    
+    const whereClause = periodMap[period] || periodMap['24h'];
+    
+    const result = await query(`
+      SELECT 
+        COUNT(*) as readings,
+        AVG(heart_rate) as avg_heart_rate,
+        MIN(heart_rate) as min_heart_rate,
+        MAX(heart_rate) as max_heart_rate,
+        AVG(temperature) as avg_temperature,
+        MIN(temperature) as min_temperature,
+        MAX(temperature) as max_temperature,
+        AVG(spo2) as avg_spo2,
+        MIN(spo2) as min_spo2,
+        MAX(spo2) as max_spo2,
+        AVG(blood_pressure_systolic) as avg_bp_systolic,
+        AVG(blood_pressure_diastolic) as avg_bp_diastolic,
+        COUNT(CASE WHEN status = 'normal' THEN 1 END) as normal_readings,
+        COUNT(CASE WHEN status = 'warning' THEN 1 END) as warning_readings,
+        COUNT(CASE WHEN status = 'critical' THEN 1 END) as critical_readings
+      FROM health_data 
+      WHERE patient_id = $1 AND ${whereClause}
+    `, [patientId]);
+    
+    const row = result.rows[0];
+    
+    res.json({
+      period,
+      summary: {
+        readings: parseInt(row.readings),
+        heartRate: {
+          average: Math.round(row.avg_heart_rate * 10) / 10,
+          min: parseInt(row.min_heart_rate),
+          max: parseInt(row.max_heart_rate)
+        },
+        temperature: {
+          average: Math.round(row.avg_temperature * 10) / 10,
+          min: parseFloat(row.min_temperature),
+          max: parseFloat(row.max_temperature)
+        },
+        spo2: {
+          average: Math.round(row.avg_spo2 * 10) / 10,
+          min: parseInt(row.min_spo2),
+          max: parseInt(row.max_spo2)
+        },
+        bloodPressure: {
+          systolic: Math.round(row.avg_bp_systolic),
+          diastolic: Math.round(row.avg_bp_diastolic)
+        },
+        status: {
+          normal: parseInt(row.normal_readings),
+          warning: parseInt(row.warning_readings),
+          critical: parseInt(row.critical_readings)
         }
       }
-    ]);
-
-    if (summary.length === 0) {
-      return res.json({
-        patientId,
-        period,
-        message: 'No data available for the specified period',
-        data: null
-      });
-    }
-
-    res.json({
-      patientId,
-      period,
-      summary: summary[0],
-      generatedAt: new Date()
     });
 
   } catch (error) {
-    logger.error('Error fetching health data summary:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch health data summary',
-      message: error.message 
-    });
+    logger.error('Error fetching health summary:', error);
+    res.status(500).json({ error: 'Failed to fetch health summary' });
   }
 });
 
-// DELETE /api/health-data/:patientId - Delete patient health data
-router.delete('/:patientId', async (req, res) => {
+// POST /api/health-data - Submit health data
+router.post('/', async (req, res) => {
   try {
-    const { patientId } = req.params;
-    const { beforeDate } = req.query;
-
-    const query = { patientId };
-    if (beforeDate) {
-      query.timestamp = { $lt: new Date(beforeDate) };
+    const { patientId, deviceId, heartRate, temperature, spo2, bloodPressure, status } = req.body;
+    
+    // Validate required fields
+    if (!patientId) {
+      return res.status(400).json({ error: 'Patient ID is required' });
     }
 
-    const result = await HealthData.deleteMany(query);
+    const result = await query(`
+      INSERT INTO health_data (patient_id, device_id, heart_rate, temperature, spo2, blood_pressure_systolic, blood_pressure_diastolic, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `, [
+      patientId,
+      deviceId,
+      heartRate,
+      temperature,
+      spo2,
+      bloodPressure?.systolic,
+      bloodPressure?.diastolic,
+      status || 'normal'
+    ]);
 
-    res.json({
+    // Emit real-time update
+    const io = req.app.get('io');
+    io.to(`patient-${patientId}`).emit('healthData', formatHealthData(result.rows[0]));
+
+    res.status(201).json(formatHealthData(result.rows[0]));
+
+  } catch (error) {
+    logger.error('Error submitting health data:', error);
+    res.status(500).json({ error: 'Failed to submit health data' });
+  }
+});
+
+// POST /api/health-data/bulk - Submit multiple readings
+router.post('/bulk', async (req, res) => {
+  try {
+    const { patientId, deviceId, readings } = req.body;
+    
+    if (!readings || readings.length === 0) {
+      return res.status(400).json({ error: 'No readings provided' });
+    }
+
+    const inserted = [];
+    
+    for (const reading of readings) {
+      const result = await query(`
+        INSERT INTO health_data (patient_id, device_id, heart_rate, temperature, spo2, blood_pressure_systolic, blood_pressure_diastolic, status, timestamp)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *
+      `, [
+        patientId,
+        deviceId,
+        reading.heartRate,
+        reading.temperature,
+        reading.spo2,
+        reading.bloodPressure?.systolic,
+        reading.bloodPressure?.diastolic,
+        reading.status || 'normal',
+        reading.timestamp || new Date()
+      ]);
+      inserted.push(formatHealthData(result.rows[0]));
+    }
+
+    // Emit real-time update for latest reading
+    if (inserted.length > 0) {
+      const io = req.app.get('io');
+      io.to(`patient-${patientId}`).emit('healthData', inserted[inserted.length - 1]);
+    }
+
+    res.status(201).json({
       success: true,
-      deletedCount: result.deletedCount
+      inserted: inserted.length,
+      data: inserted
     });
 
   } catch (error) {
-    logger.error('Error deleting health data:', error);
-    res.status(500).json({ 
-      error: 'Failed to delete health data',
-      message: error.message 
-    });
+    logger.error('Error bulk inserting health data:', error);
+    res.status(500).json({ error: 'Failed to bulk insert health data' });
   }
 });
 

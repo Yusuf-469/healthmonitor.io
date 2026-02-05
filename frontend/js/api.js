@@ -1,9 +1,28 @@
 /**
  * API Service
- * Handles all API communications
+ * Handles all API communications - Railway Optimized
  */
 
-const API_BASE_URL = process.env.API_URL || 'http://localhost:5000/api';
+// Detect environment and set API URL accordingly
+const getApiBaseUrl = () => {
+  // Check for Railway environment
+  if (process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL) {
+    const railwayUrl = process.env.RAILWAY_STATIC_URL;
+    if (railwayUrl) {
+      return `https://${railwayUrl}/api`;
+    }
+  }
+  
+  // Check for custom API URL
+  if (process.env.API_URL) {
+    return process.env.API_URL;
+  }
+  
+  // Default to localhost for development
+  return 'http://localhost:5000/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 class ApiService {
   constructor() {
@@ -172,6 +191,11 @@ class ApiService {
   clearToken() {
     this.token = null;
     localStorage.removeItem('authToken');
+  }
+
+  // Check if running on Railway
+  isRailway() {
+    return process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL !== undefined;
   }
 }
 

@@ -1,6 +1,6 @@
 /**
  * IoT-Based Intelligent Health Monitoring and Alert System
- * Main Server Entry Point
+ * Main Server Entry Point - Optimized for Railway Deployment
  */
 
 const express = require('express');
@@ -12,6 +12,10 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+// Detect Railway environment
+const isRailway = process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL !== undefined;
+const RAILWAY_URL = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_GIT_COMMIT_LINK || '';
 
 // MongoDB connection status
 let dbConnected = false;
@@ -28,30 +32,39 @@ const { logger } = require('./utils/logger');
 
 const app = express();
 const server = http.createServer(app);
+
+// Dynamic CORS configuration for Railway
+const corsOrigins = isRailway 
+  ? [RAILWAY_URL, `https://${RAILWAY_URL}`, /https:\/\/.*\.railway\.app$/].filter(Boolean)
+  : [process.env.FRONTEND_URL || 'http://localhost:3000', 'http://localhost:3000'];
+
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: corsOrigins,
     methods: ['GET', 'POST']
   }
 });
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false, // Disabled for development compatibility
+  crossOriginEmbedderPolicy: false
+}));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: corsOrigins,
   credentials: true
 }));
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100 // limit each IP to 100 requests per windowMs
 });
 app.use('/api/', limiter);
 
 // Body parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files from frontend
 app.use(express.static(path.join(__dirname, '../frontend')));
@@ -65,13 +78,24 @@ app.use('/api/alerts', alertRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/predictions', predictionRoutes);
 
-// Health check endpoint
+// Health check endpoint - Important for Railway
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    database: dbConnected ? 'connected' : 'demo'
+    database: dbConnected ? 'connected' : 'demo',
+    environment: isRailway ? 'railway' : 'local',
+    railwayUrl: RAILWAY_URL || null
+  });
+});
+
+// Railway-specific readiness check
+app.get('/ready', (req, res) => {
+  res.status(200).json({
+    ready: true,
+    database: dbConnected ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -84,7 +108,8 @@ app.get('/api/status', (req, res) => {
     },
     server: {
       status: 'online',
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      environment: isRailway ? 'railway' : 'local'
     }
   });
 });
@@ -123,28 +148,57 @@ io.on('connection', (socket) => {
     logger.info(`Client disconnected: ${socket.id}`);
   });
 });
+
+// Enhanced database connection with Railway support
 const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/iot_health_monitor';
-    await mongoose.connect(mongoURI);
+    // Check for Railway MongoDB first, then local, then fail gracefully
+    let mongoURI = process.env.MONGODB_URI;
+    
+    // Railway MongoDB plugin connection
+    if (process.env.MONGO_URI) {
+      mongoURI = process.env.MONGO_URI;
+    }
+    
+    // Use local fallback if no cloud URI provided
+    if (!mongoURI) {
+      mongoURI = 'mongodb://localhost:27017/iot_health_monitor';
+    }
+    
+    // Mongoose connection options
+    const options = {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+    };
+    
+    await mongoose.connect(mongoURI, options);
     dbConnected = true;
     logger.info('MongoDB connected successfully');
+    logger.info(`Database: ${mongoose.connection.name}`);
   } catch (error) {
     dbConnected = false;
     logger.warn('MongoDB connection failed - running in demo mode');
-    logger.warn('To enable full features, configure MONGODB_URI in .env file');
+    logger.warn('To enable full features, configure MONGODB_URI or MONGO_URI in Railway variables');
+    logger.warn(`Error: ${error.message}`);
   }
 };
 
-// Start server
-const PORT = process.env.PORT || 5000;
+// Get port from Railway or environment
+const PORT = process.env.PORT || process.env.RAILWAY_PORT || 5000;
 
+// Start server
 const startServer = async () => {
   await connectDB();
   
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server running on port ${PORT}`);
-    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`Environment: ${isRailway ? 'Railway' : process.env.NODE_ENV || 'development'}`);
+    logger.info(`Frontend URL: ${process.env.FRONTEND_URL || 'Not configured'}`);
+    
+    if (isRailway) {
+      logger.info(`Railway URL: https://${RAILWAY_URL}`);
+    }
   });
 };
 
@@ -157,6 +211,21 @@ process.on('SIGTERM', () => {
       process.exit(0);
     });
   });
+});
+
+process.on('SIGINT', () => {
+  logger.info('SIGINT received. Shutting down gracefully...');
+  server.close(() => {
+    mongoose.connection.close(false, () => {
+      logger.info('Server closed');
+      process.exit(0);
+    });
+  });
+});
+
+// Unhandled rejection handler
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 startServer();

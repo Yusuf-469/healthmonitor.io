@@ -234,12 +234,88 @@ npm test -- --coverage
 
 ## 📦 Deployment
 
-### Production Build
+### Railway Deployment (Recommended)
+
+This project is configured for easy deployment on Railway.app.
+
+#### Prerequisites
+
+- [Railway Account](https://railway.app/) (free tier available)
+- [MongoDB Atlas Account](https://www.mongodb.com/cloud/atlas) (free tier available) or use Railway's MongoDB plugin
+
+#### Quick Deploy to Railway
+
+1. **Connect to Railway**:
+   - Go to [Railway Dashboard](https://railway.app/dashboard)
+   - Click "New Project" → "Deploy from GitHub repo"
+   - Select your repository
+
+2. **Add MongoDB**:
+   - In your Railway project, click "Add Plugin" → "MongoDB"
+   - Railway will automatically set the `MONGO_URI` environment variable
+   - Or use MongoDB Atlas and add the connection string as `MONGODB_URI` variable
+
+3. **Configure Environment Variables**:
+   - In Railway project settings, add the following variables:
+   ```
+   NODE_ENV=production
+   JWT_SECRET=your-super-secret-jwt-key-min-32-characters
+   FRONTEND_URL=https://your-app-name.railway.app
+   ```
+
+4. **Deploy**:
+   - Railway will automatically detect the `Procfile` and `package.json`
+   - Click "Deploy" to start deployment
+   - Your app will be available at `https://your-app-name.railway.app`
+
+#### Manual Railway CLI Deployment
+
 ```bash
-npm run build
+# Install Railway CLI
+npm i -g @railway/cli
+
+# Login to Railway
+railway login
+
+# Link to your project
+railway link
+
+# Add MongoDB plugin
+railway up -a mongodb
+
+# Set environment variables
+railway variables set NODE_ENV=production
+railway variables set JWT_SECRET=your-secret-key
+
+# Deploy
+railway up
+
+# Open your app
+railway open
 ```
 
+#### Verify Deployment
+
+- Health check: `https://your-app.railway.app/health`
+- Should return: `{"status":"healthy","database":"connected"}`
+
+#### Troubleshooting Railway Deployment
+
+1. **App not starting**:
+   - Check logs: `railway logs`
+   - Verify `MONGODB_URI` or `MONGO_URI` is set
+   - Ensure `PORT` environment variable is being used
+
+2. **Database connection issues**:
+   - Add MongoDB plugin in Railway dashboard
+   - Or use MongoDB Atlas with IP whitelist
+
+3. **CORS errors**:
+   - Update `FRONTEND_URL` in Railway variables
+   - The server.js is configured to accept Railway URLs
+
 ### Docker Deployment
+
 ```dockerfile
 FROM node:18-alpine
 WORKDIR /app
@@ -248,6 +324,12 @@ RUN npm ci --only=production
 COPY . .
 EXPOSE 5000
 CMD ["node", "backend/server.js"]
+```
+
+Build and run:
+```bash
+docker build -t iot-health-monitor .
+docker run -p 5000:5000 -e MONGODB_URI=your-mongo-uri iot-health-monitor
 ```
 
 ## 🛠️ Maintenance

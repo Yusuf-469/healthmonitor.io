@@ -1,0 +1,34 @@
+{
+  "$schema": "https://railway.app/schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "npm install",
+    "installCommand": "npm install --production=false"
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "restartPolicy": "always",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "healthcheckInterval": 60,
+    "copyPath": "/tmp/health",
+    "timeout": 120
+  },
+  "plugins": [
+    {
+      "name": "MongoDB",
+      "id": "mongodb"
+    }
+  ],
+  "domains": [
+    {
+      "domain": {
+        "id": "main",
+        "cname": "${RAILWAY_STATIC_URL}"
+      }
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}

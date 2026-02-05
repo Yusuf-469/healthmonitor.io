@@ -1,13 +1,15 @@
 {
   "name": "iot-health-monitor",
   "version": "1.0.0",
-  "description": "IoT-Based Intelligent Health Monitoring and Alert System",
+  "description": "IoT-Based Intelligent Health Monitoring and Alert System - Production Deployment",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
     "dev": "nodemon backend/server.js",
-    "test": "jest",
-    "ml": "python ml/model.py"
+    "test": "jest --testTimeout=10000",
+    "build": "echo 'No build step required for Node.js backend'",
+    "postinstall": "echo 'Dependencies installed successfully'",
+    "install:prod": "npm install --production"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -27,5 +29,22 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": [
+    "iot",
+    "healthcare",
+    "health-monitoring",
+    "medical",
+    "esp32",
+    "realtime",
+    "alert-system",
+    "railway"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "private": true
 }

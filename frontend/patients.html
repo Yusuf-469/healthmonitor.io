@@ -198,76 +198,136 @@
 
     <script src="js/page-scripts.js"></script>
     <script>
-        // Patient page specific
+        // Patient page specific - Check demo mode
+        let isDemoMode = false;
+        
         document.addEventListener('DOMContentLoaded', () => {
+            isDemoMode = localStorage.getItem('isDemo') === 'true';
             loadPatientsPage();
         });
 
-        function loadPatientsPage() {
-            const patients = [
-                { id: 1, name: 'Kaustav', age: 21, heartRate: 72, temperature: 36.8, spo2: 98, status: 'online', device: 'ESP32-001', battery: 85 },
-                { id: 2, name: 'Yusuf', age: 22, heartRate: 78, temperature: 36.6, spo2: 97, status: 'online', device: 'ESP32-002', battery: 72 },
-                { id: 3, name: 'Sushanth', age: 20, heartRate: 68, temperature: 36.5, spo2: 99, status: 'online', device: 'ESP32-003', battery: 90 },
-                { id: 4, name: 'Niladri', age: 21, heartRate: 75, temperature: 36.9, spo2: 96, status: 'warning', device: 'ESP32-004', battery: 45 }
-            ];
+        // Demo patients data
+        const demoPatients = [
+            { id: 1, firstName: 'John', lastName: 'Doe', age: 45, heartRate: 72, temperature: 36.8, spo2: 98, status: 'online', device: 'ESP32-001', battery: 85 },
+            { id: 2, firstName: 'Jane', lastName: 'Smith', age: 38, heartRate: 78, temperature: 36.6, spo2: 97, status: 'online', device: 'ESP32-002', battery: 72 },
+            { id: 3, firstName: 'Bob', lastName: 'Johnson', age: 52, heartRate: 68, temperature: 36.5, spo2: 99, status: 'online', device: 'ESP32-003', battery: 90 },
+            { id: 4, firstName: 'Alice', lastName: 'Williams', age: 29, heartRate: 75, temperature: 36.9, spo2: 96, status: 'warning', device: 'ESP32-004', battery: 45 }
+        ];
 
+        async function loadPatientsPage() {
+            let patients = [];
+            
+            if (isDemoMode) {
+                // Use demo data
+                patients = demoPatients;
+            } else {
+                // Fetch from API
+                try {
+                    const response = await fetch('/api/patients');
+                    if (response.ok) {
+                        const data = await response.json();
+                        patients = data.patients || [];
+                    }
+                } catch (error) {
+                    console.error('Error loading patients:', error);
+                    patients = [];
+                }
+            }
+            
+            // Update stats
+            updateStats(patients);
+            
             // Populate table
+            renderTable(patients);
+            
+            // Populate cards
+            renderCards(patients);
+        }
+
+        function updateStats(patients) {
+            const totalPatients = document.querySelector('.stat-card:nth-child(1) .stat-number');
+            const onlineNow = document.querySelector('.stat-card:nth-child(2) .stat-number');
+            const criticalNow = document.querySelector('.stat-card:nth-child(3) .stat-number');
+            const devicesNow = document.querySelector('.stat-card:nth-child(4) .stat-number');
+            
+            if (totalPatients) totalPatients.textContent = patients.length;
+            if (onlineNow) onlineNow.textContent = patients.filter(p => p.status === 'online').length;
+            if (criticalNow) criticalNow.textContent = patients.filter(p => p.status === 'critical' || p.status === 'warning').length;
+            if (devicesNow) devicesNow.textContent = patients.filter(p => p.device).length;
+        }
+
+        function renderTable(patients) {
             const tableBody = document.getElementById('patients-table-body');
+            if (!tableBody) return;
+            
+            if (patients.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="8" class="no-data">No patients found.</td></tr>';
+                return;
+            }
+            
             tableBody.innerHTML = patients.map(p => `
                 <tr>
                     <td>
                         <div class="patient-cell">
-                            <div class="patient-avatar">${p.name.substring(0,2).toUpperCase()}</div>
-                            <span>${p.name}</span>
+                            <div class="patient-avatar">${(p.firstName || p.name).substring(0,2).toUpperCase()}</div>
+                            <span>${p.firstName ? p.firstName + ' ' + p.lastName : p.name}</span>
                         </div>
                     </td>
-                    <td>${p.age}</td>
-                    <td><span class="${p.heartRate > 90 ? 'danger' : p.heartRate > 75 ? 'warning' : ''}">${p.heartRate} BPM</span></td>
-                    <td><span class="${p.temperature > 37.5 ? 'danger' : ''}">${p.temperature}°C</span></td>
-                    <td><span class="${p.spo2 < 95 ? 'danger' : ''}">${p.spo2}%</span></td>
-                    <td>${p.device}</td>
-                    <td><span class="status-badge ${p.status}">${p.status}</span></td>
+                    <td>${p.age || 'N/A'}</td>
+                    <td><span class="${(p.heartRate || 0) > 90 ? 'danger' : (p.heartRate || 0) > 75 ? 'warning' : ''}">${p.heartRate || '--'} BPM</span></td>
+                    <td><span class="${(p.temperature || 0) > 37.5 ? 'danger' : ''}">${p.temperature || '--'}°C</span></td>
+                    <td><span class="${(p.spo2 || 0) < 95 ? 'danger' : ''}">${p.spo2 || '--'}%</span></td>
+                    <td>${p.device || 'N/A'}</td>
+                    <td><span class="status-badge ${p.status || 'offline'}">${p.status || 'offline'}</span></td>
                     <td>
                         <button class="action-btn" title="View"><i class="fas fa-eye"></i></button>
                         <button class="action-btn" title="Edit"><i class="fas fa-edit"></i></button>
                     </td>
                 </tr>
             `).join('');
+        }
 
-            // Populate cards
+        function renderCards(patients) {
             const grid = document.getElementById('patients-grid');
+            if (!grid) return;
+            
+            if (patients.length === 0) {
+                grid.innerHTML = '<div class="no-data">No patients found.</div>';
+                return;
+            }
+            
             grid.innerHTML = patients.map(p => `
                 <div class="patient-card">
                     <div class="patient-header">
-                        <div class="patient-avatar">${p.name.substring(0,2).toUpperCase()}</div>
+                        <div class="patient-avatar">${(p.firstName || p.name).substring(0,2).toUpperCase()}</div>
                         <div class="patient-info">
-                            <h4>${p.name}</h4>
-                            <p>Age: ${p.age}</p>
+                            <h4>${p.firstName ? p.firstName + ' ' + p.lastName : p.name}</h4>
+                            <p>Age: ${p.age || 'N/A'}</p>
                         </div>
-                        <div class="patient-status ${p.status}"></div>
+                        <div class="patient-status ${p.status || 'offline'}"></div>
                     </div>
                     <div class="patient-metrics">
                         <div class="metric">
                             <span class="metric-label">Heart Rate</span>
-                            <span class="metric-value">${p.heartRate} <span>BPM</span></span>
+                            <span class="metric-value">${p.heartRate || '--'} <span>BPM</span></span>
                         </div>
                         <div class="metric">
                             <span class="metric-label">Temperature</span>
-                            <span class="metric-value">${p.temperature} <span>°C</span></span>
+                            <span class="metric-value">${p.temperature || '--'} <span>°C</span></span>
                         </div>
                         <div class="metric">
                             <span class="metric-label">SpO2</span>
-                            <span class="metric-value">${p.spo2} <span>%</span></span>
+                            <span class="metric-value">${p.spo2 || '--'} <span>%</span></span>
                         </div>
                     </div>
                     <div class="patient-footer">
                         <div class="patient-device">
                             <i class="fas fa-microchip"></i>
-                            ${p.device}
+                            ${p.device || 'N/A'}
                         </div>
                         <div class="patient-battery">
-                            <i class="fas fa-battery-${p.battery > 75 ? 'full' : p.battery > 50 ? 'half' : 'quarter'}"></i>
-                            ${p.battery}%
+                            <i class="fas fa-battery-${(p.battery || 0) > 75 ? 'full' : (p.battery || 0) > 50 ? 'half' : 'quarter'}"></i>
+                            ${p.battery || '--'}%
                         </div>
                     </div>
                 </div>

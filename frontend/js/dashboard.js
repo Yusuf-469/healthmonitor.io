@@ -319,11 +319,14 @@ const app = {
                 this.data.patients = [];
                 this.data.alerts = [];
                 this.data.devices = [];
-                this.renderPatients();
-                this.renderAlerts();
-                this.renderDevices();
             }
         }
+        // Always render stats after loading data
+        this.renderStats();
+        // Render all components
+        this.renderPatients();
+        this.renderAlerts();
+        this.renderDevices();
     },
     
     // Load patients from API
@@ -555,6 +558,40 @@ const app = {
         if (badge) {
             badge.textContent = this.data.alerts.filter(a => a.type === 'critical' || a.type === 'warning').length;
         }
+        
+        // Update notification panel
+        this.renderNotifications();
+    },
+    
+    // Render notification panel
+    renderNotifications() {
+        const notificationList = document.getElementById('notification-list');
+        if (!notificationList) return;
+        
+        if (this.data.alerts.length === 0) {
+            notificationList.innerHTML = '<div class="no-data">No notifications</div>';
+            return;
+        }
+        
+        notificationList.innerHTML = this.data.alerts.slice(0, 5).map(alert => `
+            <div class="notification-item ${alert.type}">
+                <div class="notification-icon">
+                    <i class="fas ${this.getAlertIcon(alert.type)}"></i>
+                </div>
+                <div class="notification-content">
+                    <h4>${alert.title}</h4>
+                    <p>${alert.message}</p>
+                    <span class="notification-time">${alert.time || 'Just now'}</span>
+                </div>
+            </div>
+        `).join('');
+    },
+    
+    // Mark all notifications as read
+    markAllNotificationsRead() {
+        this.data.alerts.forEach(a => a.type = 'resolved');
+        this.renderAlerts();
+        this.showToast('All notifications marked as read', 'success');
     },
     
     // Get alert icon
@@ -624,6 +661,104 @@ const app = {
                 </div>
             </div>
         `).join('');
+    },
+    
+    // Render stats and system health
+    renderStats() {
+        const patients = this.data.patients;
+        const alerts = this.data.alerts;
+        const devices = this.data.devices;
+        
+        // Calculate stats
+        const totalPatients = patients.length;
+        const onlinePatients = patients.filter(p => p.status === 'online').length;
+        const criticalAlerts = alerts.filter(a => a.type === 'critical').length;
+        const warningAlerts = alerts.filter(a => a.type === 'warning').length;
+        const totalAlerts = alerts.length;
+        const onlineDevices = devices.filter(d => d.status === 'online').length;
+        const avgBattery = devices.length > 0 
+            ? Math.round(devices.reduce((sum, d) => sum + (d.battery || 0), 0) / devices.length) 
+            : 0;
+        
+        // Update stat numbers with animation
+        this.updateStatNumber('stat-total-patients', totalPatients);
+        this.updateStatNumber('stat-online', onlinePatients);
+        this.updateStatNumber('stat-alerts', totalAlerts);
+        this.updateStatNumber('stat-devices', onlineDevices);
+        
+        // Update trends
+        const trendPatients = document.getElementById('stat-trend-patients');
+        if (trendPatients) {
+            trendPatients.querySelector('span').textContent = totalPatients > 0 ? '12' : '0';
+        }
+        
+        const trendCritical = document.getElementById('stat-trend-critical');
+        if (trendCritical) {
+            trendCritical.querySelector('span').textContent = criticalAlerts;
+        }
+        
+        const trendDevices = document.getElementById('stat-trend-devices');
+        if (trendDevices) {
+            trendDevices.querySelector('span').textContent = onlineDevices;
+        }
+        
+        // Update alert distribution chart
+        const alertChart = this.charts.alert;
+        if (alertChart) {
+            alertChart.data.datasets[0].data = [
+                criticalAlerts,
+                warningAlerts,
+                alerts.filter(a => a.type === 'info').length,
+                alerts.filter(a => a.type === 'resolved').length
+            ];
+            alertChart.update();
+            
+            // Update center text
+            document.getElementById('total-alerts-value').textContent = totalAlerts;
+            document.getElementById('critical-count').textContent = criticalAlerts;
+            document.getElementById('warning-count').textContent = warningAlerts;
+            document.getElementById('info-count').textContent = alerts.filter(a => a.type === 'info').length;
+            document.getElementById('resolved-count').textContent = alerts.filter(a => a.type === 'resolved').length;
+        }
+        
+        // Update badges
+        const alertBadge = document.querySelector('.alert-badge');
+        if (alertBadge) {
+            alertBadge.textContent = criticalAlerts + warningAlerts;
+        }
+        
+        const sidebarAlertBadge = document.getElementById('sidebar-alert-badge');
+        if (sidebarAlertBadge) {
+            sidebarAlertBadge.textContent = criticalAlerts + warningAlerts;
+        }
+        
+        const notificationCount = document.getElementById('notification-count');
+        if (notificationCount) {
+            notificationCount.textContent = criticalAlerts + warningAlerts;
+        }
+        
+        // Update system health cards
+        document.getElementById('network-health').style.width = '95%';
+        document.getElementById('network-value').textContent = '95%';
+        
+        document.getElementById('battery-health').style.width = avgBattery + '%';
+        document.getElementById('battery-value').textContent = avgBattery + '%';
+        
+        document.getElementById('data-health').style.width = devices.length > 0 ? '100%' : '0%';
+        document.getElementById('data-value').textContent = devices.length > 0 ? '100%' : '0%';
+        
+        document.getElementById('ai-health').style.width = '89%';
+        document.getElementById('ai-value').textContent = '89%';
+    },
+    
+    // Update stat number with animation
+    updateStatNumber(elementId, value) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.dataset.count = value;
+            element.textContent = '0';
+            this.animateCounter(element);
+        }
     },
     
     // Load demo data

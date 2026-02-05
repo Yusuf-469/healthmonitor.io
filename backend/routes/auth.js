@@ -44,6 +44,10 @@ const createUser = async (userData) => {
   return result.rows[0];
 };
 
+// Demo user credentials
+const DEMO_EMAIL = 'demo@healthmonitor.com';
+const DEMO_PASSWORD = 'demo1234';
+
 // POST /api/auth/login - User login
 router.post('/login', async (req, res) => {
   try {
@@ -54,51 +58,49 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user in database
-    let user = await getUserByEmail(email);
-
-    // Demo user special handling
-    if (!user) {
-      if (email === 'demo@healthmonitor.com' && password === 'demo1234') {
-        // Check if demo user exists
-        user = await getUserByEmail('demo@healthmonitor.com');
+    // Demo user special handling - always allow demo login
+    if (email.toLowerCase() === DEMO_EMAIL && password === DEMO_PASSWORD) {
+      // Find or create demo user
+      let user = await getUserByEmail(DEMO_EMAIL);
+      
+      if (!user) {
+        // Create demo user with plain password (will be hashed)
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(DEMO_PASSWORD, salt);
         
-        if (!user) {
-          // Create demo user
-          user = await createUser({
-            email: 'demo@healthmonitor.com',
-            password: password, // Will be hashed in createUser if not already
-            firstName: 'Demo',
-            lastName: 'Admin',
-            role: 'admin',
-            status: 'active',
-            isDemo: true
-          });
-          
-          // Re-hash since createUser expects plain password
-          const salt = await bcrypt.genSalt(10);
-          const hashedPassword = await bcrypt.hash(password, salt);
-          await query('UPDATE users SET password = $1 WHERE email = $1', [hashedPassword, 'demo@healthmonitor.com']);
-          
-          logger.info('Demo user created');
-        }
-
-        const token = generateToken(user);
-        
-        return res.json({
-          success: true,
-          token,
-          user: {
-            id: user.id,
-            email: user.email,
-            firstName: user.first_name,
-            lastName: user.last_name,
-            role: user.role,
-            isDemo: user.is_demo
-          }
+        user = await createUser({
+          email: DEMO_EMAIL,
+          password: hashedPassword,
+          firstName: 'Demo',
+          lastName: 'Admin',
+          role: 'admin',
+          status: 'active',
+          isDemo: true
         });
+        logger.info('Demo user created');
       }
 
+      const token = generateToken(user);
+      
+      return res.json({
+        success: true,
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          role: user.role,
+          isDemo: user.is_demo
+        }
+      });
+    }
+
+    // Regular user login
+    // Find user in database
+    const user = await getUserByEmail(email);
+
+    if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 

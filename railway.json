@@ -2,8 +2,8 @@
   "$schema": "https://railway.app/schema.json",
   "build": {
     "builder": "NIXPACKS",
-    "buildCommand": "npm install",
-    "installCommand": "npm install --production=false"
+    "buildCommand": "rm -f package-lock.json && npm install --no-audit",
+    "installCommand": "npm install --production --no-audit"
   },
   "deploy": {
     "startCommand": "npm start",

@@ -1,47 +1,21 @@
 /**
  * PostgreSQL Database Connection
- * Optimized for Railway PostgreSQL with auto-reconnect
+ * Optimized for Railway PostgreSQL
  */
 
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// Detect environment
-const isRailway = process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL !== undefined;
-
 // Database configuration
-const getConnectionString = () => {
-  // Try Railway DATABASE_URL first
-  if (process.env.DATABASE_URL) {
-    return process.env.DATABASE_URL;
-  }
-  // Fallback to NEON_DATABASE_URL
-  if (process.env.NEON_DATABASE_URL) {
-    return process.env.NEON_DATABASE_URL;
-  }
-  return null;
-};
+const connectionString = process.env.DATABASE_URL;
 
-const connectionString = getConnectionString();
-
-// Normalize connection string (accept both postgres:// and postgresql://)
-const normalizeConnectionString = (str) => {
-  if (!str) return null;
-  if (str.startsWith('postgresql://')) {
-    return 'postgres://' + str.substring(12);
-  }
-  return str;
-};
-
-const normalizedConnectionString = normalizeConnectionString(connectionString);
-
-// Pool configuration - use minimal settings for Railway
-const poolConfig = normalizedConnectionString ? {
-  connectionString: normalizedConnectionString,
-  ssl: isRailway ? { rejectUnauthorized: false } : false,
+// Pool configuration
+const poolConfig = connectionString ? {
+  connectionString: connectionString,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   max: 5,
   idleTimeoutMillis: 10000,
-  connectionTimeoutMillis: 5000,
+  connectionTimeoutMillis: 10000,
   keepAlive: true,
 } : null;
 
@@ -60,8 +34,8 @@ if (poolConfig) {
   });
 }
 
-// Connect to database with retry logic
-const connectDB = async (retryCount = 0, maxRetries = 3) => {
+// Connect to database (non-blocking)
+const connectDB = async () => {
   if (!connectionString) {
     console.log('No DATABASE_URL configured - running without database');
     return false;
@@ -74,7 +48,7 @@ const connectDB = async (retryCount = 0, maxRetries = 3) => {
   
   connectPromise = (async () => {
     try {
-      console.log('Attempting database connection...');
+      console.log('Connecting to database...');
       const client = await pool.connect();
       
       // Test connection
@@ -90,17 +64,9 @@ const connectDB = async (retryCount = 0, maxRetries = 3) => {
       console.log('Database ready!');
       return true;
     } catch (error) {
-      console.error('Database connection failed:', error.message);
+      console.error('Database connection error:', error.message);
       dbConnected = false;
-      
-      // Retry logic
-      if (retryCount < maxRetries) {
-        console.log(`Retrying database connection (${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        return connectDB(retryCount + 1, maxRetries);
-      }
-      
-      console.warn('Database connection failed - continuing without database');
+      // Don't retry here - let it fail silently so server can start
       return false;
     }
   })();

@@ -160,10 +160,9 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
+  console.error('Unhandled error:', err.message);
   res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    error: err.message || 'Internal server error'
   });
 });
 
@@ -171,7 +170,7 @@ app.use((err, req, res, next) => {
 // SERVER STARTUP
 // ============================================
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const HOST = '0.0.0.0';
 
 // Start server immediately (don't wait for database)
@@ -181,7 +180,7 @@ server.listen(PORT, HOST, () => {
 ║     Medical IoT Backend Server                    ║
 ╠═══════════════════════════════════════════════════╣
 ║  Server running on: http://${HOST}:${PORT}                    ║
-║  Environment: ${process.env.NODE_ENV || 'development'}                        ║
+║  Environment: ${process.env.NODE_ENV || 'production'}                        ║
 ║  Health check: http://${HOST}:${PORT}/health               ║
 ╚═══════════════════════════════════════════════════╝
   `);
@@ -210,6 +209,11 @@ process.on('SIGTERM', () => {
       process.exit(0);
     }
   });
+});
+
+// Prevent unhandled rejections from crashing server
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 // Export for testing

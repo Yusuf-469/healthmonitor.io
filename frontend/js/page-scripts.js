@@ -81,7 +81,19 @@ function initSidebar() {
 document.addEventListener('DOMContentLoaded', () => {
     initScrollReveal();
     initSidebar();
+    initNavigation();
 });
+
+// Navigation handling for SPA-style navigation
+function initNavigation() {
+    document.querySelectorAll('.nav-item[data-page]').forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const page = link.getAttribute('data-page');
+            window.location.href = page + '.html';
+        });
+    });
+}
 
 // Close modal on overlay click
 document.addEventListener('click', (e) => {

@@ -94,15 +94,15 @@
                         <div class="settings-body">
                             <div class="form-group">
                                 <label>Full Name</label>
-                                <input type="text" value="Demo User" id="settings-name">
+                                <input type="text" id="settings-name">
                             </div>
                             <div class="form-group">
                                 <label>Email</label>
-                                <input type="email" value="demo@healthmonitor.io" id="settings-email">
+                                <input type="email" id="settings-email">
                             </div>
                             <div class="form-group">
                                 <label>Phone</label>
-                                <input type="tel" value="+91 7903810922" id="settings-phone">
+                                <input type="tel" id="settings-phone">
                             </div>
                             <button class="btn btn-primary" onclick="saveProfile()">Save Changes</button>
                         </div>
@@ -223,7 +223,35 @@
 
     <script src="js/page-scripts.js"></script>
     <script>
+        // Load user data on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadUserData();
+        });
+        
+        function loadUserData() {
+            const userName = localStorage.getItem('userName') || 'User';
+            const userEmail = localStorage.getItem('userEmail') || 'user@example.com';
+            const userPhone = localStorage.getItem('userPhone') || '';
+            
+            document.getElementById('settings-name').value = userName;
+            document.getElementById('settings-email').value = userEmail;
+            document.getElementById('settings-phone').value = userPhone;
+        }
+        
         function saveProfile() {
+            const name = document.getElementById('settings-name').value;
+            const email = document.getElementById('settings-email').value;
+            const phone = document.getElementById('settings-phone').value;
+            
+            // Update localStorage
+            localStorage.setItem('userName', name);
+            localStorage.setItem('userEmail', email);
+            localStorage.setItem('userPhone', phone);
+            
+            // Update header if exists
+            const userNameEl = document.getElementById('user-name');
+            if (userNameEl) userNameEl.textContent = name;
+            
             showToast('Profile saved successfully!', 'success');
         }
 

@@ -214,30 +214,49 @@ function handleSignup(event) {
     // Show loading state
     const submitBtn = signupForm.querySelector('.login-btn');
     submitBtn.classList.add('loading');
+    submitBtn.disabled = true;
     
-    // Simulate API call
-    setTimeout(() => {
-        // Store user data
-        const user = {
-            name: name,
+    // Call API to signup
+    fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
             email: email,
-            phone: phone,
-            createdAt: new Date().toISOString()
-        };
-        
-        localStorage.setItem('isLoggedIn', 'true');
-        localStorage.setItem('userEmail', email);
-        localStorage.setItem('userName', name.split(' ')[0]);
-        localStorage.setItem('userData', JSON.stringify(user));
-        
-        showToast('Account created successfully!', 'success');
-        
-        // Redirect to dashboard
-        setTimeout(() => {
-            window.location.href = 'dashboard.html';
-        }, 1500);
-        
-    }, 1500);
+            password: password,
+            firstName: name.split(' ')[0],
+            lastName: name.split(' ').slice(1).join(' ') || 'User'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Store user data
+            localStorage.setItem('isLoggedIn', 'true');
+            localStorage.setItem('authToken', data.token);
+            localStorage.setItem('userEmail', data.user.email);
+            localStorage.setItem('userName', data.user.firstName + ' ' + data.user.lastName);
+            localStorage.setItem('userRole', data.user.role);
+            
+            showToast('Account created successfully!', 'success');
+            
+            // Redirect to dashboard
+            setTimeout(() => {
+                window.location.href = 'dashboard.html';
+            }, 1500);
+        } else {
+            showToast(data.error || 'Registration failed', 'error');
+            submitBtn.classList.remove('loading');
+            submitBtn.disabled = false;
+        }
+    })
+    .catch(error => {
+        console.error('Signup error:', error);
+        showToast('Registration failed. Please try again.', 'error');
+        submitBtn.classList.remove('loading');
+        submitBtn.disabled = false;
+    });
 }
 
 /**

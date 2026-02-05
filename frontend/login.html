@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - HealthMonitor</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/login.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="login-page">
+    <!-- Background Effects -->
+    <div class="login-background">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="grid-overlay"></div>
+    </div>
+
+    <!-- Back to Home -->
+    <a href="index.html" class="back-link">
+        <i class="fas fa-arrow-left"></i>
+        <span>Back to Home</span>
+    </a>
+
+    <!-- Login Container -->
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <a href="index.html" class="login-logo">
+                    <i class="fas fa-heartbeat heartbeat-icon"></i>
+                    <span>HealthMonitor</span>
+                </a>
+                <h1>Welcome Back</h1>
+                <p>Sign in to access your health monitoring dashboard</p>
+            </div>
+
+            <form class="login-form" id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group reveal-scroll">
+                    <label for="email">
+                        <i class="fas fa-envelope"></i>
+                        Email Address
+                    </label>
+                    <div class="input-wrapper">
+                        <input type="email" id="email" placeholder="Enter your email" required>
+                        <span class="input-icon">
+                            <i class="fas fa-check-circle"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="form-group reveal-scroll" data-delay="100">
+                    <label for="password">
+                        <i class="fas fa-lock"></i>
+                        Password
+                    </label>
+                    <div class="input-wrapper">
+                        <input type="password" id="password" placeholder="Enter your password" required>
+                        <span class="input-icon toggle-password" onclick="togglePassword()">
+                            <i class="fas fa-eye"></i>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="form-options reveal-scroll" data-delay="200">
+                    <label class="checkbox-wrapper">
+                        <input type="checkbox" id="remember">
+                        <span class="checkmark"></span>
+                        <span class="label-text">Remember me</span>
+                    </label>
+                    <a href="#" class="forgot-link">Forgot password?</a>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block login-btn reveal-scroll" data-delay="300">
+                    <span class="btn-text">Sign In</span>
+                    <span class="btn-loader">
+                        <i class="fas fa-spinner fa-spin"></i>
+                    </span>
+                </button>
+
+                <div class="divider reveal-scroll" data-delay="400">
+                    <span>or continue with</span>
+                </div>
+
+                <div class="social-login reveal-scroll" data-delay="500">
+                    <button type="button" class="social-btn google" onclick="socialLogin('google')">
+                        <i class="fab fa-google"></i>
+                    </button>
+                    <button type="button" class="social-btn github" onclick="socialLogin('github')">
+                        <i class="fab fa-github"></i>
+                    </button>
+                    <button type="button" class="social-btn microsoft" onclick="socialLogin('microsoft')">
+                        <i class="fab fa-microsoft"></i>
+                    </button>
+                </div>
+            </form>
+
+            <div class="login-footer reveal-scroll" data-delay="600">
+                <p>Don't have an account? <a href="signup.html">Sign up</a></p>
+            </div>
+        </div>
+
+        <!-- Dashboard Preview (shown after login) -->
+        <div class="dashboard-preview" id="dashboardPreview">
+            <div class="preview-header">
+                <div class="preview-nav">
+                    <div class="preview-logo">
+                        <i class="fas fa-heartbeat"></i>
+                        <span>HealthMonitor</span>
+                    </div>
+                </div>
+            </div>
+            <div class="preview-content">
+                <div class="preview-sidebar">
+                    <div class="sidebar-item active">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>Dashboard</span>
+                    </div>
+                    <div class="sidebar-item">
+                        <i class="fas fa-users"></i>
+                        <span>Patients</span>
+                    </div>
+                    <div class="sidebar-item">
+                        <i class="fas fa-bell"></i>
+                        <span>Alerts</span>
+                    </div>
+                    <div class="sidebar-item">
+                        <i class="fas fa-microchip"></i>
+                        <span>Devices</span>
+                    </div>
+                    <div class="sidebar-item">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Analytics</span>
+                    </div>
+                </div>
+                <div class="preview-main">
+                    <div class="preview-stats">
+                        <div class="preview-stat">
+                            <div class="stat-icon">
+                                <i class="fas fa-users"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-value">4</span>
+                                <span class="stat-label">Patients</span>
+                            </div>
+                        </div>
+                        <div class="preview-stat">
+                            <div class="stat-icon online">
+                                <i class="fas fa-heart"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-value">99%</span>
+                                <span class="stat-label">Online</span>
+                            </div>
+                        </div>
+                        <div class="preview-stat">
+                            <div class="stat-icon alert">
+                                <i class="fas fa-exclamation"></i>
+                            </div>
+                            <div class="stat-info">
+                                <span class="stat-value">2</span>
+                                <span class="stat-label">Alerts</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="preview-chart">
+                        <canvas id="previewChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast">
+        <i class="toast-icon"></i>
+        <span class="toast-message"></span>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/login.js"></script>
+</body>
+</html>

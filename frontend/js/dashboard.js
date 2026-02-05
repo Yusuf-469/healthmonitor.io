@@ -7,6 +7,7 @@
 const app = {
     socket: null,
     charts: {},
+    isDemo: false,
     data: {
         patients: [],
         alerts: [],
@@ -32,12 +33,17 @@ const app = {
             return false;
         }
         
-        const userName = localStorage.getItem('userName') || 'Admin';
+        const userName = localStorage.getItem('userName') || 'User';
+        const isDemo = localStorage.getItem('isDemo') === 'true';
+        
         const userNameEl = document.getElementById('user-name');
         const welcomeNameEl = document.getElementById('welcome-name');
         
         if (userNameEl) userNameEl.textContent = userName;
         if (welcomeNameEl) welcomeNameEl.textContent = userName;
+        
+        // Store demo status for use in other functions
+        this.isDemo = isDemo;
         
         return true;
     },
@@ -298,20 +304,25 @@ const app = {
     
     // Load dashboard data
     async loadDashboardData() {
-        try {
-            // Load patients
-            await this.loadPatients();
-            
-            // Load alerts
-            await this.loadAlerts();
-            
-            // Load devices
-            await this.loadDevices();
-            
-        } catch (error) {
-            console.error('Error loading dashboard data:', error);
-            // Use demo data
+        if (this.isDemo) {
+            // Load demo data for demo user
             this.loadDemoData();
+        } else {
+            // Load real data for personal user
+            try {
+                await this.loadPatients();
+                await this.loadAlerts();
+                await this.loadDevices();
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                // Show empty state for personal users
+                this.data.patients = [];
+                this.data.alerts = [];
+                this.data.devices = [];
+                this.renderPatients();
+                this.renderAlerts();
+                this.renderDevices();
+            }
         }
     },
     
@@ -328,11 +339,64 @@ const app = {
             }
         } catch (error) {
             console.error('Error loading patients:', error);
-            // Don't load demo data - show empty state
-            this.data.patients = [];
-            this.renderPatients();
+            throw error;
         }
-    }
+    },
+    
+    // Load demo patients
+    loadDemoPatients() {
+        this.data.patients = [
+            {
+                id: 1,
+                patientId: 'PAT-001',
+                firstName: 'John',
+                lastName: 'Doe',
+                age: 45,
+                status: 'active',
+                device: 'ESP32-001',
+                heartRate: 72,
+                temperature: 36.6,
+                spo2: 98
+            },
+            {
+                id: 2,
+                patientId: 'PAT-002',
+                firstName: 'Jane',
+                lastName: 'Smith',
+                age: 38,
+                status: 'warning',
+                device: 'ESP32-002',
+                heartRate: 88,
+                temperature: 37.4,
+                spo2: 95
+            },
+            {
+                id: 3,
+                patientId: 'PAT-003',
+                firstName: 'Bob',
+                lastName: 'Johnson',
+                age: 52,
+                status: 'critical',
+                device: 'ESP32-003',
+                heartRate: 105,
+                temperature: 38.2,
+                spo2: 92
+            },
+            {
+                id: 4,
+                patientId: 'PAT-004',
+                firstName: 'Alice',
+                lastName: 'Williams',
+                age: 29,
+                status: 'active',
+                device: 'ESP32-004',
+                heartRate: 68,
+                temperature: 36.5,
+                spo2: 99
+            }
+        ];
+        this.renderPatients();
+    },
     
     // Render patients grid
     renderPatients() {
@@ -340,18 +404,16 @@ const app = {
         if (!grid) return;
         
         if (this.data.patients.length === 0) {
-            grid.innerHTML = '<div class="no-data">No patients found. Please login with demo credentials: demo@healthmonitor.com / demo1234</div>';
+            grid.innerHTML = '<div class="no-data">No patients found. Add patients to get started.</div>';
             return;
         }
         
         grid.innerHTML = this.data.patients.map(patient => {
-            // Handle both API data format and fallback format
             const name = patient.firstName ? `${patient.firstName} ${patient.lastName}` : patient.name || 'Unknown';
             const age = patient.age || (patient.dateOfBirth ? Math.floor((new Date() - new Date(patient.dateOfBirth)) / 31536000000) : 'N/A');
             const status = patient.status || 'offline';
             const device = patient.assignedDevices?.[0] || patient.device || 'N/A';
             
-            // Get latest reading values
             const heartRate = patient.lastReading?.heartRate || patient.heartRate || '--';
             const temperature = patient.lastReading?.temperature || patient.temperature || '--';
             const spo2 = patient.lastReading?.spo2 || patient.spo2 || '--';
@@ -431,14 +493,43 @@ const app = {
             }
         } catch (error) {
             console.error('Error loading alerts:', error);
-            this.data.alerts = [];
-            this.renderAlerts();
+            throw error;
         }
     },
     
-    // Load demo alerts - REMOVED
+    // Load demo alerts
     loadDemoAlerts() {
-        // Demo data removed - use real data from database
+        this.data.alerts = [
+            {
+                id: 1,
+                type: 'critical',
+                title: 'High Heart Rate Alert',
+                message: 'Patient John Doe has heart rate above 100 BPM',
+                time: '2 mins ago'
+            },
+            {
+                id: 2,
+                type: 'warning',
+                title: 'Temperature Rising',
+                message: 'Patient Jane Smith temperature is 37.4°C',
+                time: '15 mins ago'
+            },
+            {
+                id: 3,
+                type: 'info',
+                title: 'Device Connected',
+                message: 'ESP32-003 is now online',
+                time: '1 hour ago'
+            },
+            {
+                id: 4,
+                type: 'resolved',
+                title: 'Alert Resolved',
+                message: 'Bob Johnson SpO2 levels returned to normal',
+                time: '2 hours ago'
+            }
+        ];
+        this.renderAlerts();
     },
     
     // Render alerts list
@@ -489,30 +580,30 @@ const app = {
             }
         } catch (error) {
             console.error('Error loading devices:', error);
-            this.data.devices = [];
-            this.renderDevices();
+            throw error;
         }
-    },
-    
-    // Load demo devices - REMOVED
-    loadDemoDevices() {
-        // Demo data removed - use real data from database
     },
     
     // Load demo devices
     loadDemoDevices() {
         this.data.devices = [
-            { id: 'ESP32-001', name: 'Kaustav', status: 'online', battery: 85 },
-            { id: 'ESP32-002', name: 'Yusuf', status: 'online', battery: 72 },
-            { id: 'ESP32-003', name: 'Sushanth', status: 'online', battery: 90 },
-            { id: 'ESP32-004', name: 'Niladri', status: 'warning', battery: 45 }
+            { id: 'ESP32-001', name: 'John Doe', status: 'online', battery: 85 },
+            { id: 'ESP32-002', name: 'Jane Smith', status: 'online', battery: 72 },
+            { id: 'ESP32-003', name: 'Bob Johnson', status: 'warning', battery: 45 },
+            { id: 'ESP32-004', name: 'Alice Williams', status: 'online', battery: 90 }
         ];
+        this.renderDevices();
     },
     
     // Render devices grid
     renderDevices() {
         const grid = document.getElementById('devices-grid');
         if (!grid) return;
+        
+        if (this.data.devices.length === 0) {
+            grid.innerHTML = '<div class="no-data">No devices found.</div>';
+            return;
+        }
         
         grid.innerHTML = this.data.devices.map(device => `
             <div class="device-card">
@@ -540,9 +631,6 @@ const app = {
         this.loadDemoPatients();
         this.loadDemoAlerts();
         this.loadDemoDevices();
-        this.renderPatients();
-        this.renderAlerts();
-        this.renderDevices();
     },
     
     // Animate counters
@@ -727,6 +815,7 @@ const app = {
     // Logout
     logout() {
         localStorage.removeItem('isLoggedIn');
+        localStorage.removeItem('isDemo');
         localStorage.removeItem('userEmail');
         localStorage.removeItem('userName');
         window.location.href = 'login.html';

@@ -146,6 +146,7 @@ async function handleLogin(event) {
             localStorage.setItem('userEmail', data.user.email);
             localStorage.setItem('userName', `${data.user.firstName} ${data.user.lastName}`);
             localStorage.setItem('userRole', data.user.role);
+            localStorage.setItem('isDemo', data.user.isDemo || false);
             localStorage.setItem('isLoggedIn', 'true');
             
             showToast('Login successful! Redirecting...', 'success');

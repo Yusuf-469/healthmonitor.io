@@ -176,12 +176,104 @@ const connectDB = async () => {
     dbConnected = true;
     logger.info('MongoDB connected successfully');
     logger.info(`Database: ${mongoose.connection.name}`);
+    
+    // Auto-seed if database is empty
+    await autoSeedDatabase();
+    
   } catch (error) {
     dbConnected = false;
     logger.warn('MongoDB connection failed - running in demo mode');
     logger.warn('To enable full features, configure MONGODB_URI or MONGO_URI in Railway variables');
     logger.warn(`Error: ${error.message}`);
   }
+};
+
+// Auto-seed database with sample data
+const autoSeedDatabase = async () => {
+  try {
+    const Patient = require('./models/Patient');
+    const count = await Patient.countDocuments();
+    
+    if (count === 0) {
+      logger.info('Database is empty - auto-seeding with sample data...');
+      
+      // Import seed data
+      const seedData = require('./seedData');
+      
+      // Insert sample patients
+      if (seedData.patients && seedData.patients.length > 0) {
+        await Patient.insertMany(seedData.patients);
+        logger.info(`Seeded ${seedData.patients.length} sample patients`);
+      }
+      
+      // Insert sample devices
+      if (seedData.devices && seedData.devices.length > 0) {
+        const Device = require('./models/Device');
+        await Device.insertMany(seedData.devices);
+        logger.info(`Seeded ${seedData.devices.length} sample devices`);
+      }
+      
+      // Generate health data
+      if (seedData.patients && seedData.patients.length > 0) {
+        const HealthData = require('./models/HealthData');
+        for (const patient of seedData.patients) {
+          const device = seedData.devices?.find(d => d.patientId === patient.patientId);
+          if (device) {
+            const healthData = generateHealthData(patient.patientId, device.deviceId, 7);
+            await HealthData.insertMany(healthData);
+            logger.info(`Generated health data for ${patient.patientId}`);
+          }
+        }
+      }
+      
+      logger.info('Auto-seeding completed!');
+    } else {
+      logger.info(`Database already has ${count} patients - skipping auto-seed`);
+    }
+  } catch (error) {
+    logger.warn('Auto-seeding skipped:', error.message);
+  }
+};
+
+// Generate sample health data
+const generateHealthData = (patientId, deviceId, days = 7) => {
+  const data = [];
+  const now = new Date();
+  
+  for (let i = 0; i < days * 24; i++) {
+    const timestamp = new Date(now - (days * 24 - i) * 60 * 60 * 1000);
+    const isSleeping = timestamp.getHours() >= 23 || timestamp.getHours() < 6;
+    const baseHeartRate = isSleeping ? 60 : 75;
+    
+    data.push({
+      patientId,
+      deviceId,
+      timestamp,
+      heartRate: {
+        value: baseHeartRate + Math.round(Math.random() * 10 - 5),
+        unit: 'bpm',
+        quality: 'good'
+      },
+      temperature: {
+        value: 36.5 + Math.round(Math.random() * 10 - 5) / 10,
+        unit: '°C',
+        method: 'axillary'
+      },
+      spo2: {
+        value: 97 + Math.round(Math.random() * 4 - 2),
+        unit: '%',
+        quality: 'good'
+      },
+      bloodPressure: {
+        systolic: 115 + Math.round(Math.random() * 20 - 10),
+        diastolic: 75 + Math.round(Math.random() * 15 - 7),
+        unit: 'mmHg'
+      },
+      status: 'normal'
+    });
+  }
+  
+  return data;
 };
 
 // Get port from Railway or environment

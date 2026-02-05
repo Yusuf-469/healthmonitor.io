@@ -407,12 +407,16 @@ class HealthMonitorApp {
    * Connect to WebSocket for real-time updates
    */
   connectWebSocket() {
-    const wsUrl = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + 
-                  window.location.hostname + ':5000';
+    // Use current host for WebSocket connection (works on Railway too)
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.host;
     
     try {
-      this.socket = new io(wsUrl, {
-        transports: ['websocket', 'polling']
+      this.socket = new io(wsHost, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 1000
       });
 
       this.socket.on('connect', () => {

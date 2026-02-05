@@ -305,8 +305,7 @@ const PORT = process.env.PORT || process.env.RAILWAY_PORT || 5000;
 
 // Start server
 const startServer = async () => {
-  await connectDB();
-  
+  // Start server first (for Railway healthcheck)
   server.listen(PORT, '0.0.0.0', () => {
     logger.info(`Server running on port ${PORT}`);
     logger.info(`Environment: ${isRailway ? 'Railway' : process.env.NODE_ENV || 'development'}`);
@@ -315,6 +314,11 @@ const startServer = async () => {
     if (isRailway) {
       logger.info(`Railway URL: https://${RAILWAY_URL}`);
     }
+    
+    // Connect to MongoDB in background
+    connectDB().catch(err => {
+      logger.warn('MongoDB connection failed, running in demo mode');
+    });
   });
 };
 

@@ -12,10 +12,10 @@ A comprehensive real-time health monitoring system using IoT sensors, cloud conn
 
 ### Technical Features
 - RESTful API with Express.js backend
-- MongoDB database for flexible data storage
+- PostgreSQL database (Railway or Neon)
 - Socket.IO for real-time bidirectional communication
 - Chart.js for interactive data visualization
-- Firebase integration for cloud messaging
+- JWT authentication
 - ESP32 hardware integration for sensor data collection
 
 ## 🏗️ System Architecture
@@ -27,9 +27,9 @@ Sensors (MAX30102, DS18B20)
         ↓
     WiFi/Cloud Server
         ↓
-    Node.js Backend
+    Node.js Backend (Railway)
         ↓
-    MongoDB + Firebase
+    PostgreSQL Database
         ↓
     Frontend Dashboard
 ```
@@ -39,139 +39,147 @@ Sensors (MAX30102, DS18B20)
 ```
 medical-iot/
 ├── backend/
-│   ├── models/
-│   │   ├── Patient.js       # Patient data model
-│   │   ├── HealthData.js     # Health readings model
-│   │   ├── Alert.js          # Alert management model
-│   │   └── Device.js         # IoT device model
-│   ├── routes/
-│   │   ├── healthData.js     # Health data API endpoints
-│   │   ├── alerts.js         # Alert management endpoints
-│   │   ├── patients.js       # Patient management endpoints
-│   │   └── predictions.js    # AI prediction endpoints
-│   ├── services/
-│   │   ├── predictionService.js    # ML prediction logic
-│   │   └── notificationService.js  # Notification handling
-│   ├── middleware/
-│   │   └── errorHandler.js   # Error handling middleware
-│   ├── utils/
-│   │   └── logger.js         # Logging utility
-│   └── server.js             # Main server entry point
+│   ├── models/           # Database models (PostgreSQL)
+│   ├── routes/           # API endpoints
+│   ├── services/         # Business logic
+│   ├── middleware/       # Express middleware
+│   ├── utils/            # Utilities
+│   └── server.js         # Main entry point
 ├── frontend/
-│   ├── index.html            # Main dashboard HTML
-│   ├── css/
-│   │   └── styles.css        # Dashboard styles
-│   └── js/
-│       ├── api.js            # API service
-│       ├── charts.js         # Chart.js configuration
-│       └── app.js            # Main application logic
+│   ├── index.html        # Landing page
+│   ├── dashboard.html    # Main dashboard
+│   ├── patients.html     # Patient management
+│   ├── alerts.html       # Alerts view
+│   ├── devices.html      # Device management
+│   ├── analytics.html    # Analytics
+│   ├── settings.html     # Settings
+│   ├── login.html        # Login
+│   ├── signup.html       # Signup
+│   ├── css/              # Stylesheets
+│   └── js/               # Frontend JavaScript
 ├── hardware/
 │   └── esp32_health_monitor/
 │       └── esp32_health_monitor.ino  # ESP32 firmware
-├── .env.example              # Environment configuration template
-├── package.json              # Node.js dependencies
-└── README.md                 # This file
+├── .env.example          # Environment template
+├── package.json          # Dependencies
+├── Procfile              # Railway deployment
+└── README.md             # This file
 ```
 
-## 🚀 Getting Started
+## 🚀 Quick Start (Local Development)
 
 ### Prerequisites
-
-- Node.js v18+ and npm
-- MongoDB (local or Atlas)
-- ESP32 development board
-- Health sensors (MAX30102, DS18B20)
-- Arduino IDE (for hardware programming)
+- Node.js v18+
+- PostgreSQL (local or Neon)
 
 ### Backend Setup
 
-1. Navigate to the project directory:
-   ```bash
-   cd medical-iot
+```bash
+cd medical-iot
+
+# Install dependencies
+npm install
+
+# Create environment file
+cp .env.example .env
+
+# Configure .env with your PostgreSQL connection string
+# DATABASE_URL=postgres://user:password@host:5432/database
+
+# Start development server
+npm run dev
+```
+
+### Frontend
+
+Open `frontend/index.html` in a browser, or serve with:
+```bash
+npx serve frontend
+```
+
+## 🚂 Railway Deployment
+
+### Prerequisites
+- [Railway Account](https://railway.app/) (free tier available)
+- GitHub repository
+
+### Deployment Steps
+
+#### 1. Create New Project on Railway
+1. Go to [Railway Dashboard](https://railway.app/dashboard)
+2. Click "New Project" → "Deploy from GitHub repo"
+3. Select your repository
+
+#### 2. Add PostgreSQL Database
+1. In Railway project, click "Add Plugin" → "PostgreSQL"
+2. Railway will automatically set `DATABASE_URL` variable
+3. Note: Railway PostgreSQL URL format:
+   ```
+   postgres://postgres:password@shortline.proxy.rlwy.net:52121/railway
    ```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+#### 3. Set Environment Variables
+In Railway project settings, add:
+```
+JWT_SECRET=your-super-secret-jwt-key-min-32-characters
+NODE_ENV=production
+FRONTEND_URL=https://your-app-name.railway.app
+```
 
-3. Create environment file:
-   ```bash
-   cp .env.example .env
-   ```
+#### 4. Deploy
+- Railway detects `Procfile` and deploys automatically
+- Health check: `https://your-app.railway.app/health`
+- API docs: `https://your-app.railway.app/api`
 
-4. Configure your `.env` file with your settings:
-   ```env
-   NODE_ENV=development
-   PORT=5000
-   MONGODB_URI=mongodb://localhost:27017/iot_health_monitor
-   JWT_SECRET=your-secret-key
-   ```
+### Railway Troubleshooting
 
-5. Start the server:
-   ```bash
-   npm run dev
-   ```
+#### Health Check Failing
+1. Check logs: Railway Dashboard → Deployments → View Logs
+2. Verify `DATABASE_URL` is set correctly
+3. Ensure PostgreSQL plugin is added
 
-### Frontend Setup
+#### Database Connection Issues
+- Use Railway's PostgreSQL plugin (not external)
+- Internal URL (`postgres.railway.internal`) may not work - use proxy URL
 
-1. Open `frontend/index.html` in a web browser, or serve it with a static server:
-   ```bash
-   npx serve frontend
-   ```
-
-### Hardware Setup
-
-1. Install required Arduino libraries:
-   - WiFi.h (built-in)
-   - HTTPClient
-   - Wire.h (built-in)
-   - MAX30105 Library (SparkFun)
-   - OneWire Library
-   - DallasTemperature Library
-
-2. Open `hardware/esp32_health_monitor/esp32_health_monitor.ino` in Arduino IDE
-
-3. Select ESP32 board and upload the code
-
-4. Configure WiFi credentials in the code:
-   ```cpp
-   const char* WIFI_SSID = "your_wifi_ssid";
-   const char* WIFI_PASSWORD = "your_wifi_password";
-   const char* SERVER_URL = "http://your-server-ip:5000/api/health-data";
-   ```
+#### CORS Errors
+- Update `FRONTEND_URL` in Railway variables
+- Restart deployment after changing variables
 
 ## 📡 API Endpoints
 
-### Health Data
-- `POST /api/health-data` - Submit health data from device
-- `GET /api/health-data/:patientId` - Get patient health data
-- `GET /api/health-data/:patientId/latest` - Get latest reading
-- `GET /api/health-data/:patientId/summary` - Get aggregated summary
-
-### Alerts
-- `GET /api/alerts` - Get all alerts
-- `GET /api/alerts/active` - Get active critical alerts
-- `PUT /api/alerts/:alertId/acknowledge` - Acknowledge alert
-- `PUT /api/alerts/:alertId/resolve` - Resolve alert
+### Authentication
+- `POST /api/auth/signup` - Register new user
+- `POST /api/auth/login` - User login
+- `GET /api/auth/me` - Get current user
+- `POST /api/auth/logout` - Logout
 
 ### Patients
-- `GET /api/patients` - Get all patients
-- `POST /api/patients` - Create new patient
-- `GET /api/patients/:patientId` - Get patient details
-- `PUT /api/patients/:patientId` - Update patient
+- `GET /api/patients` - List all patients
+- `POST /api/patients` - Create patient
+- `GET /api/patients/:id` - Get patient details
+- `PUT /api/patients/:id` - Update patient
+- `DELETE /api/patients/:id` - Delete patient
 
-### Predictions
-- `POST /api/predictions/risk` - Predict health risk
-- `GET /api/predictions/:patientId/history` - Get prediction history
-- `GET /api/predictions/anomaly/:patientId` - Detect anomalies
+### Health Data
+- `POST /api/health-data` - Submit sensor data
+- `GET /api/health-data/:patientId` - Get patient readings
+- `GET /api/health-data/:patientId/latest` - Latest reading
 
-## 🔧 Configuration
+### Alerts
+- `GET /api/alerts` - List all alerts
+- `POST /api/alerts` - Create alert
+- `PUT /api/alerts/:id/acknowledge` - Acknowledge
+- `PUT /api/alerts/:id/resolve` - Resolve
+
+### Devices
+- `GET /api/devices` - List devices
+- `POST /api/devices` - Register device
+- `PUT /api/devices/:id/status` - Update status
+
+## 📊 Health Monitoring
 
 ### Alert Thresholds
-
-Default alert thresholds can be configured per patient:
-
 ```javascript
 alertSettings: {
   heartRate: { min: 60, max: 100 },
@@ -181,187 +189,59 @@ alertSettings: {
 }
 ```
 
-### Notification Methods
-
-Configure notification channels:
-- `email` - Email notifications via SMTP
-- `sms` - SMS via Twilio
-- `push` - Firebase Cloud Messaging
-- `dashboard` - In-app notifications
-
-## 🤖 AI/ML Prediction
-
-The system uses a simple risk assessment algorithm based on:
-
-1. **Current Readings**: Heart rate, temperature, SpO2, blood pressure
-2. **Trends**: Increasing/decreasing patterns over time
-3. **Alert History**: Frequency of abnormal readings
-4. **Patient History**: Pre-existing conditions
-
 ### Risk Levels
 - **Low**: Score 0-29
 - **Medium**: Score 30-49
 - **High**: Score 50-69
 - **Critical**: Score 70+
 
-## 🔒 Security Considerations
+## 🔧 Hardware Setup (ESP32)
 
-- HTTPS in production
-- JWT authentication for API access
-- Rate limiting to prevent abuse
-- Input validation on all endpoints
-- Secure data transmission (TLS)
-- Patient data encryption
+1. Install Arduino libraries:
+   - WiFi.h (built-in)
+   - HTTPClient
+   - Wire.h (built-in)
+   - MAX30105 Library
+   - OneWire Library
+   - DallasTemperature Library
 
-## 📊 Monitoring Dashboard
-
-The dashboard provides:
-- Real-time patient status overview
-- Live vital signs charts
-- Alert management interface
-- Device status monitoring
-- Historical data analysis
+2. Configure in [`esp32_health_monitor.ino`](hardware/esp32_health_monitor/esp32_health_monitor.ino):
+   ```cpp
+   const char* WIFI_SSID = "your_wifi_ssid";
+   const char* WIFI_PASSWORD = "your_wifi_password";
+   const char* SERVER_URL = "https://your-app.railway.app/api/health-data";
+   ```
 
 ## 🧪 Testing
 
 ```bash
-# Run unit tests
+# Run tests
 npm test
-
-# Run with coverage
-npm test -- --coverage
-```
-
-## 📦 Deployment
-
-### Railway Deployment (Recommended)
-
-This project is configured for easy deployment on Railway.app.
-
-#### Prerequisites
-
-- [Railway Account](https://railway.app/) (free tier available)
-- [MongoDB Atlas Account](https://www.mongodb.com/cloud/atlas) (free tier available) or use Railway's MongoDB plugin
-
-#### Quick Deploy to Railway
-
-1. **Connect to Railway**:
-   - Go to [Railway Dashboard](https://railway.app/dashboard)
-   - Click "New Project" → "Deploy from GitHub repo"
-   - Select your repository
-
-2. **Add MongoDB**:
-   - In your Railway project, click "Add Plugin" → "MongoDB"
-   - Railway will automatically set the `MONGO_URI` environment variable
-   - Or use MongoDB Atlas and add the connection string as `MONGODB_URI` variable
-
-3. **Configure Environment Variables**:
-   - In Railway project settings, add the following variables:
-   ```
-   NODE_ENV=production
-   JWT_SECRET=your-super-secret-jwt-key-min-32-characters
-   FRONTEND_URL=https://your-app-name.railway.app
-   ```
-
-4. **Deploy**:
-   - Railway will automatically detect the `Procfile` and `package.json`
-   - Click "Deploy" to start deployment
-   - Your app will be available at `https://your-app-name.railway.app`
-
-#### Manual Railway CLI Deployment
-
-```bash
-# Install Railway CLI
-npm i -g @railway/cli
-
-# Login to Railway
-railway login
-
-# Link to your project
-railway link
-
-# Add MongoDB plugin
-railway up -a mongodb
-
-# Set environment variables
-railway variables set NODE_ENV=production
-railway variables set JWT_SECRET=your-secret-key
-
-# Deploy
-railway up
-
-# Open your app
-railway open
-```
-
-#### Verify Deployment
-
-- Health check: `https://your-app.railway.app/health`
-- Should return: `{"status":"healthy","database":"connected"}`
-
-#### Troubleshooting Railway Deployment
-
-1. **App not starting**:
-   - Check logs: `railway logs`
-   - Verify `MONGODB_URI` or `MONGO_URI` is set
-   - Ensure `PORT` environment variable is being used
-
-2. **Database connection issues**:
-   - Add MongoDB plugin in Railway dashboard
-   - Or use MongoDB Atlas with IP whitelist
-
-3. **CORS errors**:
-   - Update `FRONTEND_URL` in Railway variables
-   - The server.js is configured to accept Railway URLs
-
-### Docker Deployment
-
-```dockerfile
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-EXPOSE 5000
-CMD ["node", "backend/server.js"]
-```
-
-Build and run:
-```bash
-docker build -t iot-health-monitor .
-docker run -p 5000:5000 -e MONGODB_URI=your-mongo-uri iot-health-monitor
 ```
 
 ## 🛠️ Maintenance
 
-### Database Backup
+### Database Backup (Railway)
+Use Railway's automatic backups or connect with psql CLI:
 ```bash
-mongodump --db iot_health_monitor --out backup/
+pg_dump "DATABASE_URL" > backup.sql
 ```
 
-### Log Rotation
-Logs are automatically rotated (5MB max, 5 files)
-
-### Model Retraining
+### View Logs
 ```bash
-npm run ml
+railway logs
 ```
+
+## 🔒 Security
+
+- Change `JWT_SECRET` in production
+- Use HTTPS (Railway provides this)
+- Rate limiting enabled
+- Input validation on all endpoints
 
 ## 📝 License
 
-This project is for educational and healthcare purposes. Ensure compliance with healthcare regulations (HIPAA, GDPR) before deployment.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
-
-## 📞 Support
-
-For questions or issues, please open a GitHub issue or contact the development team.
+MIT License - For educational and healthcare purposes.
 
 ---
 

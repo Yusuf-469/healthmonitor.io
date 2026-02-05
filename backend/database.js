@@ -1,6 +1,6 @@
 /**
  * PostgreSQL Database Connection
- * Optimized for Neon PostgreSQL with Railway deployment
+ * Optimized for Railway PostgreSQL with auto-reconnect
  */
 
 const { Pool } = require('pg');
@@ -9,9 +9,9 @@ require('dotenv').config();
 // Detect environment
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL !== undefined;
 
-// Database configuration - try multiple env vars
+// Database configuration
 const getConnectionString = () => {
-  // Prefer DATABASE_URL (Railway standard)
+  // Try Railway DATABASE_URL first
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL;
   }
@@ -24,10 +24,9 @@ const getConnectionString = () => {
 
 const connectionString = getConnectionString();
 
-// Fix connection string format - accept both postgres:// and postgresql://
+// Normalize connection string (accept both postgres:// and postgresql://)
 const normalizeConnectionString = (str) => {
   if (!str) return null;
-  // PostgreSQL connection strings can use either prefix
   if (str.startsWith('postgresql://')) {
     return 'postgres://' + str.substring(12);
   }
@@ -36,68 +35,88 @@ const normalizeConnectionString = (str) => {
 
 const normalizedConnectionString = normalizeConnectionString(connectionString);
 
+// Pool configuration - use minimal settings for Railway
 const poolConfig = normalizedConnectionString ? {
   connectionString: normalizedConnectionString,
   ssl: isRailway ? { rejectUnauthorized: false } : false,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000, // 10s timeout
+  max: 5,
+  idleTimeoutMillis: 10000,
+  connectionTimeoutMillis: 5000,
+  keepAlive: true,
 } : null;
 
-// Create connection pool only if we have a connection string
-let pool = connectionString ? new Pool(poolConfig) : null;
+console.log('Database config:', connectionString ? 'Connection string present' : 'No connection string');
 
-// Track connection status
+let pool = null;
 let dbConnected = false;
+let connectPromise = null;
 
-// Log connection events
-if (pool) {
-  pool.on('connect', () => {
-    console.log('New PostgreSQL client connected');
-  });
-
+// Only create pool if we have a connection string
+if (poolConfig) {
+  pool = new Pool(poolConfig);
+  
   pool.on('error', (err) => {
-    console.error('Unexpected PostgreSQL client error:', err.message);
+    console.error('Unexpected database pool error:', err.message);
   });
 }
 
-// Connect to database
-const connectDB = async () => {
+// Connect to database with retry logic
+const connectDB = async (retryCount = 0, maxRetries = 3) => {
   if (!connectionString) {
-    console.warn('No DATABASE_URL or NEON_DATABASE_URL found - running without database');
+    console.log('No DATABASE_URL configured - running without database');
     return false;
   }
-
-  try {
-    const client = await pool.connect();
-    
-    // Test connection
-    const result = await client.query('SELECT NOW()');
-    console.log('PostgreSQL connected successfully');
-    console.log(`Server time: ${result.rows[0].now}`);
-    
-    client.release();
-    dbConnected = true;
-    
-    // Run migrations
-    await runMigrations();
-    
-    return true;
-  } catch (error) {
-    console.error('PostgreSQL connection failed:', error.message);
-    dbConnected = false;
-    return false;
+  
+  // Return existing connection promise if already connecting
+  if (connectPromise) {
+    return connectPromise;
   }
+  
+  connectPromise = (async () => {
+    try {
+      console.log('Attempting database connection...');
+      const client = await pool.connect();
+      
+      // Test connection
+      const result = await client.query('SELECT NOW()');
+      console.log('Database connected successfully at:', result.rows[0].now);
+      
+      client.release();
+      dbConnected = true;
+      
+      // Run migrations
+      await runMigrations();
+      
+      console.log('Database ready!');
+      return true;
+    } catch (error) {
+      console.error('Database connection failed:', error.message);
+      dbConnected = false;
+      
+      // Retry logic
+      if (retryCount < maxRetries) {
+        console.log(`Retrying database connection (${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return connectDB(retryCount + 1, maxRetries);
+      }
+      
+      console.warn('Database connection failed - continuing without database');
+      return false;
+    }
+  })();
+  
+  return connectPromise;
 };
 
 // Run database migrations
 const runMigrations = async () => {
+  if (!pool) return false;
+  
   try {
     const client = await pool.connect();
     
-    // Create tables if they don't exist
+    // Create tables
     await client.query(`
-      -- Users table
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
@@ -111,7 +130,6 @@ const runMigrations = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Patients table
       CREATE TABLE IF NOT EXISTS patients (
         id SERIAL PRIMARY KEY,
         patient_id VARCHAR(50) UNIQUE NOT NULL,
@@ -122,14 +140,10 @@ const runMigrations = async () => {
         date_of_birth DATE,
         gender VARCHAR(20),
         status VARCHAR(50) DEFAULT 'active',
-        address TEXT,
-        emergency_contact VARCHAR(255),
-        medical_notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Devices table
       CREATE TABLE IF NOT EXISTS devices (
         id SERIAL PRIMARY KEY,
         device_id VARCHAR(50) UNIQUE NOT NULL,
@@ -137,31 +151,23 @@ const runMigrations = async () => {
         type VARCHAR(50) DEFAULT 'ESP32',
         status VARCHAR(50) DEFAULT 'offline',
         firmware VARCHAR(50),
-        battery_level INTEGER,
-        last_seen TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Health data table
       CREATE TABLE IF NOT EXISTS health_data (
         id SERIAL PRIMARY KEY,
         patient_id VARCHAR(50) NOT NULL,
         device_id VARCHAR(50),
         heart_rate INTEGER,
-        heart_rate_unit VARCHAR(10) DEFAULT 'bpm',
         temperature DECIMAL(4,1),
-        temperature_unit VARCHAR(10) DEFAULT '°C',
         spo2 INTEGER,
-        spo2_unit VARCHAR(10) DEFAULT '%',
         blood_pressure_systolic INTEGER,
         blood_pressure_diastolic INTEGER,
-        blood_pressure_unit VARCHAR(10) DEFAULT 'mmHg',
         status VARCHAR(50) DEFAULT 'normal',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Alerts table
       CREATE TABLE IF NOT EXISTS alerts (
         id SERIAL PRIMARY KEY,
         alert_id VARCHAR(50) UNIQUE NOT NULL,
@@ -172,20 +178,12 @@ const runMigrations = async () => {
         title VARCHAR(255) NOT NULL,
         message TEXT,
         status VARCHAR(50) DEFAULT 'active',
-        acknowledged_by VARCHAR(255),
-        acknowledged_at TIMESTAMP,
-        resolved_by VARCHAR(255),
-        resolved_at TIMESTAMP,
-        resolution_method VARCHAR(100),
-        resolution_notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
     
     client.release();
-    console.log('Database migrations completed successfully');
-    
+    console.log('Database migrations completed');
     return true;
   } catch (error) {
     console.error('Migration error:', error.message);
@@ -200,21 +198,19 @@ const query = async (text, params) => {
   }
   
   const start = Date.now();
-  try {
-    const result = await pool.query(text, params);
-    const duration = Date.now() - start;
-    console.debug('Executed query', { text: text.substring(0, 100), duration, rows: result.rowCount });
-    return result;
-  } catch (error) {
-    console.error('Query error:', { text: text.substring(0, 100), error: error.message });
-    throw error;
+  const result = await pool.query(text, params);
+  const duration = Date.now() - start;
+  
+  if (duration > 100) {
+    console.log('Slow query:', text.substring(0, 50), duration + 'ms');
   }
+  
+  return result;
 };
 
-// Get client for transactions
+// Get client
 const getClient = () => pool ? pool.connect() : null;
 
-// Export
 module.exports = {
   pool,
   query,

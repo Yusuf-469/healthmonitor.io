@@ -1,240 +1,231 @@
 /**
- * IoT-Based Intelligent Health Monitoring and Alert System
- * Main Server Entry Point - Optimized for Railway Deployment with PostgreSQL
+ * Medical IoT Backend Server
+ * Main Express application entry point
  */
 
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const socketIo = require('socket.io');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+// Load environment variables early
 require('dotenv').config();
 
-// Import database
-const { connectDB, getDbConnected } = require('./database');
-const { seedDatabase } = require('./seed');
+// Express setup
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const http = require('http');
 
-// Detect Railway environment
-const isRailway = process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL !== undefined;
-const RAILWAY_URL = process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_GIT_COMMIT_LINK || '';
+// Database
+const { connectDB, getDbConnected, query, pool } = require('./database');
 
-// Import routes
-const healthDataRoutes = require('./routes/healthData');
-const alertRoutes = require('./routes/alerts');
-const patientRoutes = require('./routes/patients');
-const predictionRoutes = require('./routes/predictions');
-const authRoutes = require('./routes/auth');
-const deviceRoutes = require('./routes/devices');
+// Logger
+const logger = require('./utils/logger');
 
-// Import middleware
-const { errorHandler } = require('./middleware/errorHandler');
-const { logger } = require('./utils/logger');
-
+// Create Express app
 const app = express();
 const server = http.createServer(app);
 
-// Dynamic CORS configuration for Railway
-const corsOrigins = isRailway 
-  ? [RAILWAY_URL, `https://${RAILWAY_URL}`, /https:\/\/.*\.railway\.app$/].filter(Boolean)
-  : [process.env.FRONTEND_URL || 'http://localhost:3000', 'http://localhost:3000'];
+// ============================================
+// MIDDLEWARE SETUP
+// ============================================
 
-const io = socketIo(server, {
-  cors: {
-    origin: corsOrigins,
-    methods: ['GET', 'POST']
-  }
-});
-
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
+// CORS configuration
 app.use(cors({
-  origin: corsOrigins,
+  origin: process.env.FRONTEND_URL || '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100
-});
-app.use('/api/', limiter);
-
-// Body parsing
+// Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from frontend
+// Request logging (simple)
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    if (req.path !== '/health' && req.path !== '/ready') {
+      console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+    }
+  });
+  next();
+});
+
+// ============================================
+// STATIC FILES (for frontend in production)
+// ============================================
+
+// Serve static files from frontend directory
 app.use(express.static(path.join(__dirname, '../frontend')));
 
-// Make io accessible to routes
-app.set('io', io);
+// ============================================
+// API ROUTES
+// ============================================
 
-// API Routes
-app.use('/api/health-data', healthDataRoutes);
-app.use('/api/alerts', alertRoutes);
-app.use('/api/patients', patientRoutes);
-app.use('/api/predictions', predictionRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/devices', deviceRoutes);
-
-// Health check endpoint - Important for Railway
+// Health check endpoints (critical for Railway)
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
+  const dbReady = getDbConnected();
+  res.status(dbReady ? 200 : 503).json({
+    status: dbReady ? 'healthy' : 'degraded',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    database: getDbConnected() ? 'connected' : 'disconnected',
-    environment: isRailway ? 'railway' : 'local',
-    railwayUrl: RAILWAY_URL || null
+    database: dbReady ? 'connected' : 'disconnected',
+    memory: process.memoryUsage()
   });
 });
 
-// Railway-specific readiness check
 app.get('/ready', (req, res) => {
-  res.status(200).json({
-    ready: true,
-    database: getDbConnected() ? 'connected' : 'disconnected',
-    timestamp: new Date().toISOString()
+  const dbReady = getDbConnected();
+  res.status(dbReady ? 200 : 503).json({
+    ready: dbReady,
+    database: dbReady ? 'ready' : 'initializing'
   });
 });
 
-// Database status endpoint
-app.get('/api/status', (req, res) => {
+// API Info
+app.get('/api', (req, res) => {
   res.json({
-    database: {
-      status: getDbConnected() ? 'connected' : 'disconnected',
-      message: getDbConnected() ? 'PostgreSQL connected' : 'Database not connected'
-    },
-    server: {
-      status: 'online',
-      uptime: process.uptime(),
-      environment: isRailway ? 'railway' : 'local'
+    name: 'Medical IoT API',
+    version: '1.0.0',
+    status: 'operational',
+    endpoints: {
+      auth: '/api/auth',
+      patients: '/api/patients',
+      healthData: '/api/health-data',
+      alerts: '/api/alerts',
+      devices: '/api/devices'
     }
   });
 });
 
-// Seed endpoint (for manual seeding)
-app.post('/api/seed', async (req, res) => {
-  try {
-    await seedDatabase();
-    res.json({ success: true, message: 'Database seeded successfully' });
-  } catch (error) {
-    logger.error('Seed error:', error);
-    res.status(500).json({ error: 'Seeding failed' });
-  }
-});
+// Mount routes
+app.use('/api/auth', require('./routes/auth'));
+app.use('/api/patients', require('./routes/patients'));
+app.use('/api/health-data', require('./routes/healthData'));
+app.use('/api/alerts', require('./routes/alerts'));
+app.use('/api/devices', require('./routes/devices'));
 
-// Serve frontend for all non-API routes
+// Legacy routes (redirect)
+app.use('/api/login', require('./routes/auth'));
+app.use('/api/signup', require('./routes/auth'));
+
+// ============================================
+// FRONTEND ROUTES (SPA support)
+// ============================================
+
+// Serve index.html for all non-API routes (SPA)
 app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'Route not found' });
+  // Don't serve index.html for API routes
+  if (req.path.startsWith('/api') || req.path.startsWith('/health') || req.path.startsWith('/ready')) {
+    return res.status(404).json({ error: 'Not found' });
   }
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
+  
+  // Serve appropriate HTML based on path
+  let filePath = path.join(__dirname, '../frontend');
+  
+  if (req.path === '/' || req.path === '/index' || req.path === '/index.html') {
+    filePath = path.join(filePath, 'index.html');
+  } else if (req.path.startsWith('/dashboard')) {
+    filePath = path.join(filePath, 'dashboard.html');
+  } else if (req.path.startsWith('/patients')) {
+    filePath = path.join(filePath, 'patients.html');
+  } else if (req.path.startsWith('/alerts')) {
+    filePath = path.join(filePath, 'alerts.html');
+  } else if (req.path.startsWith('/devices')) {
+    filePath = path.join(filePath, 'devices.html');
+  } else if (req.path.startsWith('/analytics')) {
+    filePath = path.join(filePath, 'analytics.html');
+  } else if (req.path.startsWith('/settings')) {
+    filePath = path.join(filePath, 'settings.html');
+  } else if (req.path.startsWith('/login')) {
+    filePath = path.join(filePath, 'login.html');
+  } else if (req.path.startsWith('/signup')) {
+    filePath = path.join(filePath, 'signup.html');
+  } else {
+    filePath = path.join(filePath, 'index.html');
+  }
+  
+  res.sendFile(filePath, (err) => {
+    if (err) {
+      res.status(404).json({ error: 'Page not found' });
+    }
+  });
 });
 
-// Error handling middleware
-app.use(errorHandler);
+// ============================================
+// ERROR HANDLING
+// ============================================
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  res.status(404).json({ error: 'Not found' });
 });
 
-// Socket.IO connection handling for real-time data
-io.on('connection', (socket) => {
-  logger.info(`Client connected: ${socket.id}`);
-
-  socket.on('subscribe-patient', (patientId) => {
-    socket.join(`patient-${patientId}`);
-    logger.info(`Client ${socket.id} subscribed to patient ${patientId}`);
-  });
-
-  socket.on('unsubscribe-patient', (patientId) => {
-    socket.leave(`patient-${patientId}`);
-    logger.info(`Client ${socket.id} unsubscribed from patient ${patientId}`);
-  });
-
-  socket.on('disconnect', () => {
-    logger.info(`Client disconnected: ${socket.id}`);
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 });
 
-// Get port from Railway or environment
-const PORT = process.env.PORT || process.env.RAILWAY_PORT || 5000;
+// ============================================
+// SERVER STARTUP
+// ============================================
+
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
 
 // Start server
 const startServer = async () => {
-  // Start server first (for Railway healthcheck)
-  server.listen(PORT, '0.0.0.0', () => {
-    logger.info(`Server running on port ${PORT}`);
-    logger.info(`Environment: ${isRailway ? 'Railway' : process.env.NODE_ENV || 'development'}`);
-    logger.info(`Frontend URL: ${process.env.FRONTEND_URL || 'Not configured'}`);
+  try {
+    // Connect to database (non-blocking, will retry)
+    connectDB().then(dbReady => {
+      if (dbReady) {
+        console.log('✓ Database connected and migrations complete');
+      } else {
+        console.log('⚠ Database not connected - running in limited mode');
+      }
+    });
     
-    if (isRailway) {
-      logger.info(`Railway URL: https://${RAILWAY_URL}`);
-    }
+    // Start listening
+    server.listen(PORT, HOST, () => {
+      console.log(`
+╔═══════════════════════════════════════════════════╗
+║     Medical IoT Backend Server                     ║
+╠═══════════════════════════════════════════════════╣
+║  Server running on: http://${HOST}:${PORT}                    ║
+║  Environment: ${process.env.NODE_ENV || 'development'}                        ║
+║  Health check: http://${HOST}:${PORT}/health               ║
+║  API docs:     http://${HOST}:${PORT}/api                   ║
+╚═══════════════════════════════════════════════════╝
+      `);
+    });
     
-    // Connect to PostgreSQL database (non-blocking)
-    connectDB()
-      .then(connected => {
-        if (connected) {
-          logger.info('Database connected - seeding sample data...');
-          return seedDatabase().catch(err => logger.warn('Seeding skipped:', err.message));
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM received, shutting down gracefully');
+      server.close(() => {
+        console.log('Server closed');
+        if (pool) {
+          pool.end(() => {
+            console.log('Database pool closed');
+            process.exit(0);
+          });
         } else {
-          logger.warn('Database not connected - running without database');
+          process.exit(0);
         }
-      })
-      .catch(err => {
-        logger.warn('Database connection error:', err.message);
       });
-  });
+    });
+    
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
 };
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    const db = require('./database');
-    if (db.pool) {
-      db.pool.end(false, () => {
-        logger.info('Database pool closed');
-        logger.info('Server closed');
-        process.exit(0);
-      });
-    } else {
-      logger.info('Server closed');
-      process.exit(0);
-    }
-  });
-});
-
-process.on('SIGINT', () => {
-  logger.info('SIGINT received. Shutting down gracefully...');
-  server.close(() => {
-    const db = require('./database');
-    if (db.pool) {
-      db.pool.end(false, () => {
-        logger.info('Database pool closed');
-        logger.info('Server closed');
-        process.exit(0);
-      });
-    } else {
-      logger.info('Server closed');
-      process.exit(0);
-    }
-  });
-});
-
-// Unhandled rejection handler
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
+// Start the server
 startServer();
 
-module.exports = { app, server, io };
+// Export for testing
+module.exports = { app, server, pool };

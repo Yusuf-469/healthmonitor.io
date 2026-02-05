@@ -9,39 +9,60 @@ require('dotenv').config();
 // Detect environment
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'true' || process.env.RAILWAY_STATIC_URL !== undefined;
 
-// Database configuration
-const poolConfig = {
-  connectionString: process.env.DATABASE_URL || process.env.NEON_DATABASE_URL,
+// Database configuration - try multiple env vars
+const getConnectionString = () => {
+  // Prefer DATABASE_URL (Railway standard)
+  if (process.env.DATABASE_URL) {
+    return process.env.DATABASE_URL;
+  }
+  // Fallback to NEON_DATABASE_URL
+  if (process.env.NEON_DATABASE_URL) {
+    return process.env.NEON_DATABASE_URL;
+  }
+  return null;
+};
+
+const connectionString = getConnectionString();
+
+const poolConfig = connectionString ? {
+  connectionString,
   ssl: isRailway ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-};
+  connectionTimeoutMillis: 10000, // 10s timeout
+} : null;
 
-// Create connection pool
-const pool = new Pool(poolConfig);
+// Create connection pool only if we have a connection string
+let pool = connectionString ? new Pool(poolConfig) : null;
 
 // Track connection status
 let dbConnected = false;
 
 // Log connection events
-pool.on('connect', () => {
-  logger.info('New PostgreSQL client connected');
-});
+if (pool) {
+  pool.on('connect', () => {
+    console.log('New PostgreSQL client connected');
+  });
 
-pool.on('error', (err) => {
-  logger.error('Unexpected PostgreSQL client error:', err);
-});
+  pool.on('error', (err) => {
+    console.error('Unexpected PostgreSQL client error:', err.message);
+  });
+}
 
 // Connect to database
 const connectDB = async () => {
+  if (!connectionString) {
+    console.warn('No DATABASE_URL or NEON_DATABASE_URL found - running without database');
+    return false;
+  }
+
   try {
     const client = await pool.connect();
     
     // Test connection
     const result = await client.query('SELECT NOW()');
-    logger.info('PostgreSQL connected successfully');
-    logger.info(`Server time: ${result.rows[0].now}`);
+    console.log('PostgreSQL connected successfully');
+    console.log(`Server time: ${result.rows[0].now}`);
     
     client.release();
     dbConnected = true;
@@ -51,7 +72,7 @@ const connectDB = async () => {
     
     return true;
   } catch (error) {
-    logger.error('PostgreSQL connection failed:', error.message);
+    console.error('PostgreSQL connection failed:', error.message);
     dbConnected = false;
     return false;
   }
@@ -107,8 +128,7 @@ const runMigrations = async () => {
         battery_level INTEGER,
         last_seen TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (patient_id) REFERENCES patients(patient_id) ON DELETE SET NULL
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- Health data table
@@ -126,9 +146,7 @@ const runMigrations = async () => {
         blood_pressure_diastolic INTEGER,
         blood_pressure_unit VARCHAR(10) DEFAULT 'mmHg',
         status VARCHAR(50) DEFAULT 'normal',
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (patient_id) REFERENCES patients(patient_id) ON DELETE CASCADE,
-        FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
       -- Alerts table
@@ -149,50 +167,42 @@ const runMigrations = async () => {
         resolution_method VARCHAR(100),
         resolution_notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (patient_id) REFERENCES patients(patient_id) ON DELETE CASCADE,
-        FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-
-      -- Create indexes for better performance
-      CREATE INDEX IF NOT EXISTS idx_patients_patient_id ON patients(patient_id);
-      CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id);
-      CREATE INDEX IF NOT EXISTS idx_health_data_patient_id ON health_data(patient_id);
-      CREATE INDEX IF NOT EXISTS idx_health_data_timestamp ON health_data(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_alerts_patient_id ON alerts(patient_id);
-      CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
-      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
     `);
     
     client.release();
-    logger.info('Database migrations completed successfully');
+    console.log('Database migrations completed successfully');
     
     return true;
   } catch (error) {
-    logger.error('Migration error:', error.message);
+    console.error('Migration error:', error.message);
     return false;
   }
 };
 
 // Query helper
 const query = async (text, params) => {
+  if (!pool || !dbConnected) {
+    throw new Error('Database not connected');
+  }
+  
   const start = Date.now();
   try {
     const result = await pool.query(text, params);
     const duration = Date.now() - start;
-    logger.debug('Executed query', { text: text.substring(0, 100), duration, rows: result.rowCount });
+    console.debug('Executed query', { text: text.substring(0, 100), duration, rows: result.rowCount });
     return result;
   } catch (error) {
-    logger.error('Query error:', { text: text.substring(0, 100), error: error.message });
+    console.error('Query error:', { text: text.substring(0, 100), error: error.message });
     throw error;
   }
 };
 
 // Get client for transactions
-const getClient = () => pool.connect();
+const getClient = () => pool ? pool.connect() : null;
 
 // Export
-const logger = require('./utils/logger');
 module.exports = {
   pool,
   query,
